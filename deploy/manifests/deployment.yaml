@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nvidia-carbide-cloud-controller-manager
+  namespace: kube-system
+  labels:
+    app: nvidia-carbide-cloud-controller-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nvidia-carbide-cloud-controller-manager
+  template:
+    metadata:
+      labels:
+        app: nvidia-carbide-cloud-controller-manager
+    spec:
+      serviceAccountName: cloud-controller-manager
+      containers:
+        - name: cloud-controller-manager
+          image: ghcr.io/fabiendupont/cloud-provider-nvidia-carbide:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /nvidia-carbide-cloud-controller-manager
+            - --cloud-provider=nvidia-carbide
+            - --cloud-config=/etc/nvidia-carbide/cloud-config
+            - --use-service-account-credentials=true
+            - --leader-elect=true
+            - --leader-elect-resource-name=nvidia-carbide-cloud-controller-manager
+            - --v=2
+          volumeMounts:
+            - name: cloud-config
+              mountPath: /etc/nvidia-carbide
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 10258
+              scheme: HTTPS
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+      volumes:
+        - name: cloud-config
+          secret:
+            secretName: nvidia-carbide-cloud-config
+            items:
+              - key: cloud-config
+                path: cloud-config
+      tolerations:
+        # Allow running on control plane nodes
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        # Allow running on uninitialized nodes
+        - key: node.cloudprovider.kubernetes.io/uninitialized
+          operator: Exists
+          effect: NoSchedule
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""

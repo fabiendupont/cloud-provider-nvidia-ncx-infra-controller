@@ -1,0 +1,223 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+  name: cloud-provider-nvidia-carbide.v0.1.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned: []
+  description: |
+    Kubernetes Cloud Controller Manager (CCM) for NVIDIA Carbide bare-metal platform.
+
+    The NVIDIA Carbide Cloud Provider implements:
+
+    - **Node Controller**: Initializes nodes with provider IDs, labels nodes with
+      zone and region information, updates node addresses, and removes terminated nodes.
+    - **Zone Support**: Maps NVIDIA Carbide sites to Kubernetes zones for
+      zone-aware pod scheduling and volume topology.
+    - **Instance Metadata**: Queries the NVIDIA Carbide API for node/instance information.
+  displayName: Cloud Provider NVIDIA Carbide
+  icon:
+    - base64data: ""
+      mediatype: image/svg+xml
+  install:
+    spec:
+      clusterPermissions:
+        - rules:
+            - apiGroups:
+                - ""
+              resources:
+                - events
+              verbs:
+                - create
+                - patch
+                - update
+            - apiGroups:
+                - ""
+              resources:
+                - nodes
+              verbs:
+                - get
+                - list
+                - watch
+                - update
+                - patch
+                - delete
+            - apiGroups:
+                - ""
+              resources:
+                - nodes/status
+              verbs:
+                - get
+                - list
+                - watch
+                - update
+                - patch
+            - apiGroups:
+                - ""
+              resources:
+                - services
+              verbs:
+                - list
+                - watch
+                - patch
+            - apiGroups:
+                - ""
+              resources:
+                - services/status
+              verbs:
+                - patch
+                - update
+            - apiGroups:
+                - ""
+              resources:
+                - serviceaccounts
+              verbs:
+                - create
+                - get
+                - list
+                - watch
+            - apiGroups:
+                - ""
+              resources:
+                - serviceaccounts/token
+              verbs:
+                - create
+            - apiGroups:
+                - ""
+              resources:
+                - persistentvolumes
+              verbs:
+                - get
+                - list
+                - watch
+                - update
+                - patch
+            - apiGroups:
+                - ""
+              resources:
+                - configmaps
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - update
+                - patch
+                - delete
+            - apiGroups:
+                - coordination.k8s.io
+              resources:
+                - leases
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - update
+                - patch
+                - delete
+            - apiGroups:
+                - discovery.k8s.io
+              resources:
+                - endpointslices
+              verbs:
+                - get
+                - list
+                - watch
+          serviceAccountName: cloud-controller-manager
+      deployments:
+        - label:
+            app: nvidia-carbide-cloud-controller-manager
+          name: nvidia-carbide-cloud-controller-manager
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: nvidia-carbide-cloud-controller-manager
+            template:
+              metadata:
+                labels:
+                  app: nvidia-carbide-cloud-controller-manager
+              spec:
+                containers:
+                  - command:
+                      - /nvidia-carbide-cloud-controller-manager
+                      - --cloud-provider=nvidia-carbide
+                      - --cloud-config=/etc/nvidia-carbide/cloud-config
+                      - --use-service-account-credentials=true
+                      - --leader-elect=true
+                      - --leader-elect-resource-name=nvidia-carbide-cloud-controller-manager
+                      - --v=2
+                    image: ghcr.io/fabiendupont/cloud-provider-nvidia-carbide:v0.1.0
+                    imagePullPolicy: IfNotPresent
+                    livenessProbe:
+                      httpGet:
+                        path: /healthz
+                        port: 10258
+                        scheme: HTTPS
+                      initialDelaySeconds: 20
+                      periodSeconds: 30
+                      timeoutSeconds: 5
+                    name: cloud-controller-manager
+                    resources:
+                      limits:
+                        cpu: 500m
+                        memory: 512Mi
+                      requests:
+                        cpu: 100m
+                        memory: 128Mi
+                    volumeMounts:
+                      - mountPath: /etc/nvidia-carbide
+                        name: cloud-config
+                        readOnly: true
+                nodeSelector:
+                  node-role.kubernetes.io/control-plane: ""
+                serviceAccountName: cloud-controller-manager
+                tolerations:
+                  - effect: NoSchedule
+                    key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+                  - effect: NoSchedule
+                    key: node-role.kubernetes.io/master
+                    operator: Exists
+                  - effect: NoSchedule
+                    key: node.cloudprovider.kubernetes.io/uninitialized
+                    operator: Exists
+                volumes:
+                  - name: cloud-config
+                    secret:
+                      items:
+                        - key: cloud-config
+                          path: cloud-config
+                      secretName: nvidia-carbide-cloud-config
+    strategy: deployment
+  installModes:
+    - supported: true
+      type: OwnNamespace
+    - supported: true
+      type: SingleNamespace
+    - supported: false
+      type: MultiNamespace
+    - supported: true
+      type: AllNamespaces
+  keywords:
+    - cloud-provider
+    - nvidia
+    - carbide
+    - bare-metal
+    - kubernetes
+    - ccm
+  links:
+    - name: Source Code
+      url: https://github.com/fabiendupont/cloud-provider-nvidia-carbide
+  maintainers:
+    - email: fdupont@nvidia.com
+      name: Fabien Dupont
+  maturity: alpha
+  provider:
+    name: NVIDIA
+  version: 0.1.0
