@@ -65,16 +65,12 @@ var _ = Describe("Live Cloud Provider E2E", Label("live"), func() {
 		token = getKeycloakToken()
 	})
 
-	Context("Cloud provider with real infrastructure", func() {
+	Context("Cloud provider with real infrastructure", Ordered, func() {
 		var siteID string
 
-		BeforeEach(func() {
+		BeforeAll(func() {
 			prefix := fmt.Sprintf("e2e-ccm-%d", time.Now().Unix())
 			siteID = setupInfrastructureViaAPI(token, testOrgName, prefix)
-		})
-
-		AfterEach(func() {
-			cleanupInfrastructureViaAPI(token, testOrgName, siteID)
 		})
 
 		It("should initialize the cloud provider with a valid config", func() {
