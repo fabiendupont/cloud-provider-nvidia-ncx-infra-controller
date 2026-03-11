@@ -31,6 +31,8 @@ import (
 	"github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/providerid"
 )
 
+const defaultInstanceType = "nvidia-carbide-instance"
+
 // InstanceExists checks if the instance exists for the given node
 func (c *NvidiaCarbideCloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, error) {
 	providerID := node.Spec.ProviderID
@@ -145,25 +147,25 @@ func (c *NvidiaCarbideCloud) InstanceMetadata(
 }
 
 // resolveInstanceType looks up the instance type name from the Carbide API.
-// Falls back to "nvidia-carbide-instance" if the lookup fails.
+// Falls back to defaultInstanceType if the lookup fails.
 func (c *NvidiaCarbideCloud) resolveInstanceType(ctx context.Context, instance *bmm.Instance) string {
 	if !instance.HasInstanceTypeId() {
 		klog.Warning("Instance has no instance type ID, using fallback")
-		return "nvidia-carbide-instance"
+		return defaultInstanceType
 	}
 
 	instanceTypeID := instance.GetInstanceTypeId()
 	it, httpResp, err := c.nvidiaCarbideClient.GetInstanceType(ctx, c.orgName, instanceTypeID)
 	if err != nil || httpResp.StatusCode != http.StatusOK || it == nil {
 		klog.Warningf("Failed to get instance type %s, using fallback: %v", instanceTypeID, err)
-		return "nvidia-carbide-instance"
+		return defaultInstanceType
 	}
 
 	if it.HasName() {
 		return it.GetName()
 	}
 
-	return "nvidia-carbide-instance"
+	return defaultInstanceType
 }
 
 // resolveZoneAndRegion looks up the site from the Carbide API and constructs
@@ -265,4 +267,3 @@ func (c *NvidiaCarbideCloud) extractNodeAddresses(instance *bmm.Instance, nodeNa
 
 	return addresses
 }
-

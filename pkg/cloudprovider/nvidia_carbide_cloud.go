@@ -93,8 +93,8 @@ type NvidiaCarbideCloud struct {
 	tenantID            string
 	// siteCache maps siteID -> *siteInfo. Entries are never evicted because
 	// sites rarely change; restarting the CCM clears the cache.
-	siteCache           sync.Map
-	machineHealthCache  sync.Map // map[machineID]*machineHealthCacheEntry
+	siteCache          sync.Map
+	machineHealthCache sync.Map // map[machineID]*machineHealthCacheEntry
 }
 
 func init() {

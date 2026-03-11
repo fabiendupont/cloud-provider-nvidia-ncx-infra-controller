@@ -80,8 +80,10 @@ func mockHTTPResponse(statusCode int) *http.Response {
 type mockNvidiaCarbideClient struct {
 	getInstanceFunc     func(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error)
 	getSiteFunc         func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error)
-	getInstanceTypeFunc func(ctx context.Context, org string, instanceTypeId string) (*bmm.InstanceType, *http.Response, error)
-	getMachineFunc      func(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error)
+	getInstanceTypeFunc func(
+		ctx context.Context, org string, instanceTypeId string,
+	) (*bmm.InstanceType, *http.Response, error)
+	getMachineFunc func(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error)
 }
 
 func (m *mockNvidiaCarbideClient) GetInstance(

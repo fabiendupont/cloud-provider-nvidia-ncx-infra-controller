@@ -23,6 +23,12 @@ help: ## Display this help.
 
 ##@ Development
 
+GOLANGCI_LINT ?= $(GOBIN)/golangci-lint
+
+.PHONY: lint
+lint: ## Run golangci-lint against code.
+	$(GOLANGCI_LINT) run
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
