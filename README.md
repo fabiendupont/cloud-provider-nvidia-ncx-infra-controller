@@ -1,86 +1,102 @@
 # Cloud Provider for NVIDIA Carbide
 
-Kubernetes Cloud Controller Manager (CCM) for NVIDIA Carbide platform.
+Kubernetes Cloud Controller Manager (CCM) for NVIDIA Carbide bare-metal infrastructure platform.
 
 ## Overview
 
 This repository implements the Kubernetes Cloud Provider interface for NVIDIA Carbide, enabling native integration between Kubernetes and the NVIDIA Carbide bare-metal infrastructure platform.
 
-### What is a Cloud Provider?
+The CCM binary is built using the standard `k8s.io/cloud-provider/app` framework and targets Kubernetes 1.34+.
 
-The Cloud Provider interface allows Kubernetes to interact with underlying cloud infrastructure. The Cloud Controller Manager (CCM) is a Kubernetes control plane component that runs cloud-specific control loops.
+### Implemented Interfaces
+
+| Interface | Status | Description |
+|-----------|--------|-------------|
+| **InstancesV2** | Implemented | Node lifecycle management, metadata, addresses |
+| **Zones** | Implemented | Zone and region mapping from Carbide site data |
+| **LoadBalancer** | Not implemented | Use [MetalLB](https://metallb.universe.tf/) or kube-vip instead |
+| **Routes** | Not implemented | Not applicable for bare-metal |
 
 ### What Does This Provider Do?
 
-The NVIDIA Carbide Cloud Provider implements:
-
 1. **Node Controller**: Manages node lifecycle
    - Initializes nodes with provider IDs (`nvidia-carbide://org/tenant/site/instance-id`)
-   - Labels nodes with zone and region information
-   - Updates node addresses based on NVIDIA Carbide instance network configuration
+   - Labels nodes with zone and region information derived from site location
+   - Updates node addresses based on NVIDIA Carbide instance network interfaces
    - Removes nodes that have been terminated in NVIDIA Carbide
+   - Sets instance type labels from the Carbide InstanceType name
+   - Optionally labels nodes with machine health status
 
-2. **Zone Support**: Provides zone and region information for scheduling
-   - Maps NVIDIA Carbide sites to Kubernetes zones
-   - Enables zone-aware pod scheduling and volume topology
+2. **Zone/Region Mapping**: Maps NVIDIA Carbide sites to Kubernetes topology
+   - Queries the Site API for location data (country, state, city)
+   - Zone: `{country}-{state}-{site-name}` (lowercase, hyphen-separated)
+   - Region: `{country}-{state}` (lowercase, hyphen-separated)
+   - Falls back to site-ID-based identifiers if location data is unavailable
+   - Site lookups are cached to reduce API calls
 
-3. **Instance Metadata**: Queries NVIDIA Carbide API for node/instance information
-   - Checks if instances exist
-   - Detects shutdown/terminated instances
-   - Retrieves instance network configuration
+3. **Instance Type Resolution**: Resolves machine types from the Carbide API
+   - Looks up the InstanceType by ID from the instance metadata
+   - Sets `node.kubernetes.io/instance-type` to the InstanceType name (e.g., `dgx-h100`)
+   - Falls back to `nvidia-carbide-instance` if the lookup fails
 
-**Note**: Load balancer and routes are not currently supported. Use external solutions like MetalLB or kube-vip for LoadBalancer services.
+4. **Node Address Classification**: Differentiates network interfaces
+   - Physical interfaces (CIN/InfiniBand) are skipped as not Kubernetes-routable
+   - The first non-physical interface's first IP is used as `NodeInternalIP`
+   - Hostname is always added as `NodeHostName`
+
+5. **Machine Health Labels** (optional): Exposes hardware health status
+   - `nvidia-carbide.io/healthy`: `"true"` or `"false"`
+   - `nvidia-carbide.io/health-alert-count`: number of active alerts
+   - Enables external remediation controllers (e.g., RHWA NodeHealthCheck)
 
 ## Architecture
 
 ```
 +----------------------------------------------------------+
-|            Kubernetes Control Plane                      |
+|            Kubernetes Control Plane                       |
 |  +----------------------------------------------------+  |
 |  |   kube-controller-manager (built-in controllers)   |  |
 |  +----------------------------------------------------+  |
 |                                                          |
 |  +----------------------------------------------------+  |
-|  |   NVIDIA Carbide Cloud Controller Manager (CCM)        |  |
+|  |   NVIDIA Carbide Cloud Controller Manager (CCM)    |  |
 |  |   +------------------------------------------+     |  |
 |  |   |  Node Controller                         |     |  |
 |  |   |  - Initialize nodes with provider IDs    |     |  |
 |  |   |  - Update node addresses                 |     |  |
+|  |   |  - Set zone/region/instance-type labels   |     |  |
 |  |   |  - Remove terminated nodes               |     |  |
 |  |   +------------------------------------------+     |  |
 |  +------------------+---------------------------------+  |
 +---------------------+------------------------------------+
-                      | Watches Nodes
-                      | Updates Node Status
-                      v
-+----------------------------------------------------------+
-|            Kubernetes API Server                         |
-|                   (Node Objects)                         |
-+----------------------------------------------------------+
                       |
-                      | Queries Instance Info
                       v
 +----------------------------------------------------------+
-|         NVIDIA Carbide REST API Client                       |
-|         (github.com/NVIDIA/carbide-rest/client)          |
+|            Kubernetes API Server (Node Objects)           |
 +----------------------------------------------------------+
                       |
                       v
 +----------------------------------------------------------+
-|            NVIDIA Carbide Platform            |
+|         NVIDIA Carbide REST API                          |
+|    Instance, Site, InstanceType, Machine APIs            |
++----------------------------------------------------------+
+                      |
+                      v
++----------------------------------------------------------+
+|            NVIDIA Carbide Platform                       |
 |       (Bare-Metal Infrastructure Management)             |
 +----------------------------------------------------------+
 ```
 
 ## Dependencies
 
-- **[github.com/NVIDIA/carbide-rest/client](../carbide-rest/client)** - Auto-generated REST API client
+- **github.com/nvidia/bare-metal-manager-rest/sdk/standard** - Auto-generated REST API client
 - **k8s.io/cloud-provider** - Kubernetes cloud provider framework
 - **k8s.io/component-base** - Kubernetes component utilities
 
 ## Prerequisites
 
-1. **Kubernetes cluster** (v1.28+) deployed on NVIDIA Carbide infrastructure
+1. **Kubernetes cluster** (v1.34+) deployed on NVIDIA Carbide infrastructure
 2. **NVIDIA Carbide API credentials**: endpoint URL, org name, token, site UUID, tenant UUID
 3. **Control plane nodes** with network access to NVIDIA Carbide API
 
@@ -180,7 +196,7 @@ Environment variables override cloud config file values:
 The cloud controller manager accepts standard Kubernetes CCM flags:
 
 ```bash
---cloud-provider=nvidia-carbide        # Cloud provider name (required)
+--cloud-provider=nvidia-carbide    # Cloud provider name (required)
 --cloud-config=/path/to/config     # Path to cloud config file
 --use-service-account-credentials  # Use service account for cloud API
 --leader-elect                     # Enable leader election (multi-replica)
@@ -199,9 +215,11 @@ When a new node joins the cluster:
 3. CCM queries NVIDIA Carbide API for instance metadata
 4. CCM updates node with:
    - Provider ID
-   - Node addresses (InternalIP from NVIDIA Carbide interfaces)
-   - Zone labels (`topology.kubernetes.io/zone`)
-   - Region labels (`topology.kubernetes.io/region`)
+   - Node addresses (`NodeInternalIP` from the first non-physical interface)
+   - Instance type label from the Carbide InstanceType name
+   - Zone labels (`topology.kubernetes.io/zone` = `{country}-{state}-{site-name}`)
+   - Region labels (`topology.kubernetes.io/region` = `{country}-{state}`)
+   - Health labels (`nvidia-carbide.io/healthy`, `nvidia-carbide.io/health-alert-count`)
 
 When an instance is terminated in NVIDIA Carbide:
 
@@ -242,7 +260,7 @@ allowedTopologies:
   - matchLabelExpressions:
       - key: topology.kubernetes.io/zone
         values:
-          - nvidia-carbide-zone-site-123
+          - us-california-santa-clara-dc1
 ```
 
 ## Development
@@ -250,38 +268,29 @@ allowedTopologies:
 ### Building
 
 ```bash
-make build          # Build binary
-make test           # Run tests
-make docker-build   # Build Docker image
-make run            # Run locally (requires kubeconfig and cloud config)
-```
-
-### Release Artifacts
-
-```bash
-# OLM bundle image
-make bundle-build bundle-push
-
-# FBC catalog image
-make catalog-build catalog-push
+go build ./cmd/nvidia-carbide-cloud-controller-manager/   # Build binary
+go test ./...                                              # Run tests
+make docker-build                                          # Build Docker image
 ```
 
 ### Project Structure
 
 ```
 cloud-provider-nvidia-carbide/
-├── cmd/nvidia-carbide-cloud-controller-manager/  # CCM entry point
+├── cmd/nvidia-carbide-cloud-controller-manager/  # CCM entry point (real binary)
 ├── pkg/cloudprovider/                            # Cloud provider implementation
-│   ├── nvidia_carbide_cloud.go                   # Main provider interface
+│   ├── nvidia_carbide_cloud.go                   # Provider registration and client
 │   ├── instances.go                              # InstancesV2 implementation
-│   └── zones.go                                  # Zones implementation
+│   ├── zones.go                                  # Zones implementation
+│   ├── health.go                                 # Machine health labels
+│   └── loadbalancer.go                           # LoadBalancer (not implemented)
 ├── pkg/providerid/                               # Provider ID parsing
+├── test/
+│   ├── integration/                              # Integration tests (Ginkgo)
+│   └── e2e/                                      # End-to-end tests
 ├── deploy/                                       # Kubernetes manifests
-│   ├── rbac/                                     # ServiceAccount, ClusterRole
-│   └── manifests/                                # Deployment, Secret
 ├── bundle/                                       # OLM bundle (CSV)
 ├── catalog/                                      # File Based Catalog for OLM
-├── config/                                       # Sample configurations
 └── Dockerfile                                    # Container build
 ```
 
@@ -339,17 +348,6 @@ kubectl auth can-i update nodes \
   --as=system:serviceaccount:kube-system:cloud-controller-manager
 ```
 
-### High API Request Rate
-
-**Symptoms:**
-- NVIDIA Carbide API rate limiting errors
-- CCM making excessive API calls
-
-**Solutions:**
-1. Increase sync period (default controller intervals)
-2. Enable caching in cloud provider (if available)
-3. Reduce node count or number of CCM replicas
-
 ## Comparison with Other Providers
 
 | Feature | NVIDIA Carbide | AWS | Azure | GCP | OpenStack |
@@ -368,7 +366,7 @@ Apache 2.0
 
 - [cluster-api-provider-nvidia-carbide](../cluster-api-provider-nvidia-carbide) - Cluster API provider for NVIDIA Carbide
 - [machine-api-provider-nvidia-carbide](../machine-api-provider-nvidia-carbide) - OpenShift Machine API provider for NVIDIA Carbide
-- [carbide-rest](../carbide-rest) - REST API client library
+- [bare-metal-manager-rest](../bare-metal-manager-rest) - REST API and SDK
 
 ## Contributing
 

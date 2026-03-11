@@ -21,39 +21,45 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
+
+	"github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/providerid"
 )
 
-// GetZone returns the Zone containing the current zone and locality region that the program is running in
+// GetZone returns the Zone containing the current zone and locality region
 func (c *NvidiaCarbideCloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
-	zone := cloudprovider.Zone{
-		FailureDomain: c.getZoneFromSiteID(c.siteID),
-		Region:        c.getRegionFromSiteID(c.siteID),
-	}
-
-	return zone, nil
+	zone, region := c.resolveZoneAndRegion(ctx, c.siteID)
+	return cloudprovider.Zone{
+		FailureDomain: zone,
+		Region:        region,
+	}, nil
 }
 
-// GetZoneByProviderID returns the Zone containing the zone and region for a specific provider ID
+// GetZoneByProviderID returns the Zone for a specific provider ID
 func (c *NvidiaCarbideCloud) GetZoneByProviderID(ctx context.Context, providerID string) (cloudprovider.Zone, error) {
-	// Parse provider ID to get site ID
-	// For now, use the configured site ID
-	zone := cloudprovider.Zone{
-		FailureDomain: c.getZoneFromSiteID(c.siteID),
-		Region:        c.getRegionFromSiteID(c.siteID),
+	parsed, err := providerid.ParseProviderID(providerID)
+	if err != nil {
+		return cloudprovider.Zone{}, err
 	}
 
-	return zone, nil
+	siteID := parsed.SiteName
+	if siteID == "" {
+		siteID = c.siteID
+	}
+
+	zone, region := c.resolveZoneAndRegion(ctx, siteID)
+	return cloudprovider.Zone{
+		FailureDomain: zone,
+		Region:        region,
+	}, nil
 }
 
-// GetZoneByNodeName returns the Zone containing the zone and region for a specific node
+// GetZoneByNodeName returns the Zone for a specific node
 func (c *NvidiaCarbideCloud) GetZoneByNodeName(
 	ctx context.Context, nodeName types.NodeName,
 ) (cloudprovider.Zone, error) {
-	// All nodes in an NVIDIA Carbide cluster are in the same site/zone
-	zone := cloudprovider.Zone{
-		FailureDomain: c.getZoneFromSiteID(c.siteID),
-		Region:        c.getRegionFromSiteID(c.siteID),
-	}
-
-	return zone, nil
+	zone, region := c.resolveZoneAndRegion(ctx, c.siteID)
+	return cloudprovider.Zone{
+		FailureDomain: zone,
+		Region:        region,
+	}, nil
 }

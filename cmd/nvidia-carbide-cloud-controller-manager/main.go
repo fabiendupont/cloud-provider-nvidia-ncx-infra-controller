@@ -17,48 +17,62 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
 	"os"
 
+	"k8s.io/apimachinery/pkg/util/wait"
+	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider/app"
+	"k8s.io/cloud-provider/app/config"
+	"k8s.io/cloud-provider/names"
+	"k8s.io/cloud-provider/options"
+	"k8s.io/component-base/cli"
+	cliflag "k8s.io/component-base/cli/flag"
+	_ "k8s.io/component-base/logs/json/register"
+	_ "k8s.io/component-base/metrics/prometheus/clientgo"
+	_ "k8s.io/component-base/metrics/prometheus/version"
 	"k8s.io/klog/v2"
 
 	// Import NVIDIA Carbide cloud provider to register it
 	_ "github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/cloudprovider"
 )
 
-const (
-	// ComponentName is the name of the cloud controller manager component
-	ComponentName = "nvidia-carbide-cloud-controller-manager"
-)
-
 func main() {
-	klog.InitFlags(nil)
+	ccmOptions, err := options.NewCloudControllerManagerOptions()
+	if err != nil {
+		klog.Fatalf("unable to initialize command options: %v", err)
+	}
 
-	fmt.Println("NVIDIA Carbide Cloud Controller Manager")
-	fmt.Println("====================================")
-	fmt.Println()
-	fmt.Println("This is a cloud provider implementation for NVIDIA Carbide.")
-	fmt.Println()
-	fmt.Println("To build and run a full cloud controller manager, you need to:")
-	fmt.Println("1. Ensure all k8s.io/* dependencies are aligned to the same version")
-	fmt.Println("2. Use k8s.io/cloud-provider/app.NewCloudControllerManagerCommand()")
-	fmt.Println("3. Integrate with your Kubernetes version's cloud controller framework")
-	fmt.Println()
-	fmt.Println("The cloud provider implementation is in pkg/cloudprovider/")
-	fmt.Println()
-	fmt.Println("For production use, integrate this with your Kubernetes distribution's")
-	fmt.Println("cloud controller manager framework, ensuring version compatibility.")
+	fss := cliflag.NamedFlagSets{}
+	command := app.NewCloudControllerManagerCommand(
+		ccmOptions,
+		cloudInitializer,
+		app.DefaultInitFuncConstructors,
+		names.CCMControllerAliases(),
+		fss,
+		wait.NeverStop,
+	)
+	code := cli.Run(command)
+	os.Exit(code)
+}
 
-	// TODO: Full implementation would use k8s.io/cloud-provider/app
-	// command := app.NewCloudControllerManagerCommand()
-	// if err := command.Execute(); err != nil {
-	// 	fmt.Fprintf(os.Stderr, "error: %v\n", err)
-	// 	os.Exit(1)
-	// }
+func cloudInitializer(cfg *config.CompletedConfig) cloudprovider.Interface {
+	cloudConfig := cfg.ComponentConfig.KubeCloudShared.CloudProvider
 
-	klog.Info("Cloud provider 'nvidia-carbide' is registered and available")
-	klog.Info("Provider implements: InstancesV2, Zones")
-	klog.Info("Provider does not implement: LoadBalancer, Routes")
+	cloud, err := cloudprovider.InitCloudProvider(cloudConfig.Name, cloudConfig.CloudConfigFile)
+	if err != nil {
+		klog.Fatalf("Cloud provider could not be initialized: %v", err)
+	}
+	if cloud == nil {
+		klog.Fatalf("Cloud provider is nil")
+	}
 
-	os.Exit(0)
+	if !cloud.HasClusterID() {
+		if cfg.ComponentConfig.KubeCloudShared.AllowUntaggedCloud {
+			klog.Warning("detected a cluster without a ClusterID")
+		} else {
+			klog.Fatalf("no ClusterID found, set --allow-untagged-cloud to bypass")
+		}
+	}
+
+	return cloud
 }

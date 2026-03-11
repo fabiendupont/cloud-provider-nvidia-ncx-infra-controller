@@ -27,6 +27,8 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 
+	bmm "github.com/nvidia/bare-metal-manager-rest/sdk/standard"
+
 	"github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/providerid"
 )
 
@@ -42,7 +44,6 @@ func (c *NvidiaCarbideCloud) InstanceExists(ctx context.Context, node *v1.Node) 
 		return false, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	// Check if instance exists in NVIDIA Carbide
 	_, httpResp, err := c.nvidiaCarbideClient.GetInstance(ctx, c.orgName, instanceUUID.String())
 	if err != nil {
 		klog.Warningf("Instance %s not found: %v", instanceUUID, err)
@@ -69,7 +70,6 @@ func (c *NvidiaCarbideCloud) InstanceShutdown(ctx context.Context, node *v1.Node
 		return false, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	// Get instance status from NVIDIA Carbide
 	instance, httpResp, err := c.nvidiaCarbideClient.GetInstance(ctx, c.orgName, instanceUUID.String())
 	if err != nil {
 		return false, fmt.Errorf("failed to get instance: %w", err)
@@ -79,7 +79,6 @@ func (c *NvidiaCarbideCloud) InstanceShutdown(ctx context.Context, node *v1.Node
 		return false, fmt.Errorf("failed to get instance, status %d", httpResp.StatusCode)
 	}
 
-	// Check if instance is in a shutdown or terminating state
 	if instance.Status != nil {
 		switch string(*instance.Status) {
 		case "Terminating", "Terminated", "Error":
@@ -101,13 +100,12 @@ func (c *NvidiaCarbideCloud) InstanceMetadata(
 		return nil, fmt.Errorf("node %s has no provider ID", node.Name)
 	}
 
-	instanceUUID, err := parseProviderID(providerID)
+	parsed, err := providerid.ParseProviderID(providerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	// Get instance details from NVIDIA Carbide
-	instance, httpResp, err := c.nvidiaCarbideClient.GetInstance(ctx, c.orgName, instanceUUID.String())
+	instance, httpResp, err := c.nvidiaCarbideClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -116,43 +114,149 @@ func (c *NvidiaCarbideCloud) InstanceMetadata(
 		return nil, fmt.Errorf("failed to get instance, status %d", httpResp.StatusCode)
 	}
 
-	// Extract node addresses from instance interfaces
-	addresses := []v1.NodeAddress{}
-	for _, iface := range instance.Interfaces {
-		for _, ipAddr := range iface.IpAddresses {
-			addresses = append(addresses, v1.NodeAddress{
-				Type:    v1.NodeInternalIP,
-				Address: ipAddr,
-			})
-		}
+	instanceType := c.resolveInstanceType(ctx, instance)
+
+	siteID := c.siteID
+	if instance.HasSiteId() {
+		siteID = instance.GetSiteId()
 	}
+	zone, region := c.resolveZoneAndRegion(ctx, siteID)
 
-	// Add hostname
-	addresses = append(addresses, v1.NodeAddress{
-		Type:    v1.NodeHostName,
-		Address: node.Name,
-	})
+	addresses := c.extractNodeAddresses(instance, node.Name)
 
-	// Determine zone from site ID
-	zone := c.getZoneFromSiteID(c.siteID)
-
-	// Determine instance type
-	instanceType := "unknown"
-	if instance.Id != nil {
-		instanceType = "nvidia-carbide-instance"
-	}
+	additionalLabels := c.machineHealthLabels(ctx, instance)
 
 	metadata := &cloudprovider.InstanceMetadata{
-		ProviderID:    providerID,
-		InstanceType:  instanceType,
-		NodeAddresses: addresses,
-		Zone:          zone,
-		Region:        c.getRegionFromSiteID(c.siteID),
+		ProviderID:       providerID,
+		InstanceType:     instanceType,
+		NodeAddresses:    addresses,
+		Zone:             zone,
+		Region:           region,
+		AdditionalLabels: additionalLabels,
 	}
 
 	klog.V(4).Infof("Instance metadata for %s: %+v", node.Name, metadata)
 
 	return metadata, nil
+}
+
+// resolveInstanceType looks up the instance type name from the Carbide API.
+// Falls back to "nvidia-carbide-instance" if the lookup fails.
+func (c *NvidiaCarbideCloud) resolveInstanceType(ctx context.Context, instance *bmm.Instance) string {
+	if !instance.HasInstanceTypeId() {
+		klog.Warning("Instance has no instance type ID, using fallback")
+		return "nvidia-carbide-instance"
+	}
+
+	instanceTypeID := instance.GetInstanceTypeId()
+	it, httpResp, err := c.nvidiaCarbideClient.GetInstanceType(ctx, c.orgName, instanceTypeID)
+	if err != nil || httpResp.StatusCode != http.StatusOK || it == nil {
+		klog.Warningf("Failed to get instance type %s, using fallback: %v", instanceTypeID, err)
+		return "nvidia-carbide-instance"
+	}
+
+	if it.HasName() {
+		return it.GetName()
+	}
+
+	return "nvidia-carbide-instance"
+}
+
+// resolveZoneAndRegion looks up the site from the Carbide API and constructs
+// zone ({country}-{state}-{site-name}) and region ({country}-{state}).
+// Falls back to site-ID-based placeholders if the lookup fails.
+func (c *NvidiaCarbideCloud) resolveZoneAndRegion(ctx context.Context, siteID string) (string, string) {
+	info, err := c.getCachedSite(ctx, siteID)
+	if err != nil || info == nil {
+		klog.Warningf("Failed to get site %s, using fallback zone/region: %v", siteID, err)
+		return fmt.Sprintf("nvidia-carbide-zone-%s", siteID),
+			fmt.Sprintf("nvidia-carbide-region-%s", siteID)
+	}
+
+	if info.country != "" && info.state != "" {
+		region := info.country + "-" + info.state
+		zone := region + "-" + info.name
+		return zone, region
+	}
+
+	klog.Warningf("Site %s has no location data, using fallback zone/region", siteID)
+	if info.name != "" {
+		return info.name, info.name
+	}
+	return fmt.Sprintf("nvidia-carbide-zone-%s", siteID),
+		fmt.Sprintf("nvidia-carbide-region-%s", siteID)
+}
+
+// getCachedSite returns cached site info or fetches it from the API.
+func (c *NvidiaCarbideCloud) getCachedSite(ctx context.Context, siteID string) (*siteInfo, error) {
+	if cached, ok := c.siteCache.Load(siteID); ok {
+		return cached.(*siteInfo), nil
+	}
+
+	site, httpResp, err := c.nvidiaCarbideClient.GetSite(ctx, c.orgName, siteID)
+	if err != nil || httpResp.StatusCode != http.StatusOK || site == nil {
+		return nil, fmt.Errorf("failed to get site %s: %w", siteID, err)
+	}
+
+	info := &siteInfo{
+		name: strings.ToLower(strings.ReplaceAll(site.GetName(), " ", "-")),
+	}
+	if site.HasLocation() {
+		loc := site.GetLocation()
+		info.country = strings.ToLower(loc.GetCountry())
+		info.state = strings.ToLower(loc.GetState())
+		info.city = strings.ToLower(loc.GetCity())
+	}
+
+	c.siteCache.Store(siteID, info)
+	return info, nil
+}
+
+// siteInfo holds cached site location data.
+type siteInfo struct {
+	name    string
+	country string
+	state   string
+	city    string
+}
+
+// extractNodeAddresses classifies instance interfaces into Kubernetes node addresses.
+// The first non-physical interface's first IP is used as NodeInternalIP.
+// Physical interfaces (CIN/InfiniBand) are skipped as they are not Kubernetes-routable.
+func (c *NvidiaCarbideCloud) extractNodeAddresses(instance *bmm.Instance, nodeName string) []v1.NodeAddress {
+	var addresses []v1.NodeAddress
+	foundInternalIP := false
+
+	for _, iface := range instance.Interfaces {
+		// Skip physical interfaces (CIN/InfiniBand) — not Kubernetes-routable
+		if iface.HasIsPhysical() && iface.GetIsPhysical() {
+			continue
+		}
+
+		for _, ipAddr := range iface.IpAddresses {
+			if !foundInternalIP {
+				addresses = append(addresses, v1.NodeAddress{
+					Type:    v1.NodeInternalIP,
+					Address: ipAddr,
+				})
+				foundInternalIP = true
+			}
+			// TODO: Additional non-physical interfaces could be classified as
+			// NodeExternalIP if we can determine management vs. data interfaces
+			// from subnet metadata. For now, only the first IP is used.
+		}
+
+		if foundInternalIP {
+			break
+		}
+	}
+
+	addresses = append(addresses, v1.NodeAddress{
+		Type:    v1.NodeHostName,
+		Address: nodeName,
+	})
+
+	return addresses
 }
 
 // parseProviderID extracts the instance ID UUID from the provider ID format
@@ -163,22 +267,4 @@ func parseProviderID(providerIDStr string) (uuid.UUID, error) {
 		return uuid.UUID{}, err
 	}
 	return parsed.InstanceID, nil
-}
-
-// getZoneFromSiteID returns a zone identifier based on the site ID
-func (c *NvidiaCarbideCloud) getZoneFromSiteID(siteID string) string {
-	// In a real implementation, this would map site IDs to actual zones
-	// For now, use the site ID as the zone
-	return fmt.Sprintf("nvidia-carbide-zone-%s", siteID)
-}
-
-// getRegionFromSiteID returns a region identifier based on the site ID
-func (c *NvidiaCarbideCloud) getRegionFromSiteID(siteID string) string {
-	// In a real implementation, this would map site IDs to regions
-	// For now, extract a region from the site ID or use a default
-	parts := strings.Split(siteID, "-")
-	if len(parts) > 0 {
-		return fmt.Sprintf("nvidia-carbide-region-%s", parts[0])
-	}
-	return "nvidia-carbide-region-default"
 }

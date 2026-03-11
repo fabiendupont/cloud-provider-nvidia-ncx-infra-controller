@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 	cloudprovider "k8s.io/cloud-provider"
@@ -45,6 +46,9 @@ const (
 // NvidiaCarbideClientInterface defines the methods we need from the NVIDIA Carbide REST client
 type NvidiaCarbideClientInterface interface {
 	GetInstance(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error)
+	GetSite(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error)
+	GetInstanceType(ctx context.Context, org string, instanceTypeId string) (*bmm.InstanceType, *http.Response, error)
+	GetMachine(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error)
 }
 
 // carbideClient wraps the SDK APIClient and injects auth context
@@ -63,12 +67,31 @@ func (c *carbideClient) GetInstance(
 	return c.client.InstanceAPI.GetInstance(c.authCtx(ctx), org, instanceId).Execute()
 }
 
+func (c *carbideClient) GetSite(
+	ctx context.Context, org, siteId string,
+) (*bmm.Site, *http.Response, error) {
+	return c.client.SiteAPI.GetSite(c.authCtx(ctx), org, siteId).Execute()
+}
+
+func (c *carbideClient) GetInstanceType(
+	ctx context.Context, org, instanceTypeId string,
+) (*bmm.InstanceType, *http.Response, error) {
+	return c.client.InstanceTypeAPI.GetInstanceType(c.authCtx(ctx), org, instanceTypeId).Execute()
+}
+
+func (c *carbideClient) GetMachine(
+	ctx context.Context, org, machineId string,
+) (*bmm.Machine, *http.Response, error) {
+	return c.client.MachineAPI.GetMachine(c.authCtx(ctx), org, machineId).Execute()
+}
+
 // NvidiaCarbideCloud implements the Kubernetes cloud provider interface for NVIDIA Carbide
 type NvidiaCarbideCloud struct {
 	nvidiaCarbideClient NvidiaCarbideClientInterface
 	orgName             string
 	siteID              string
 	tenantID            string
+	siteCache           sync.Map // map[string]*bmm.Site
 }
 
 func init() {

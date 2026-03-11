@@ -78,7 +78,10 @@ func mockHTTPResponse(statusCode int) *http.Response {
 
 // mockNvidiaCarbideClient for testing
 type mockNvidiaCarbideClient struct {
-	getInstanceFunc func(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error)
+	getInstanceFunc     func(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error)
+	getSiteFunc         func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error)
+	getInstanceTypeFunc func(ctx context.Context, org string, instanceTypeId string) (*bmm.InstanceType, *http.Response, error)
+	getMachineFunc      func(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error)
 }
 
 func (m *mockNvidiaCarbideClient) GetInstance(
@@ -102,6 +105,33 @@ func (m *mockNvidiaCarbideClient) GetInstance(
 			},
 		},
 	}, mockHTTPResponse(200), nil
+}
+
+func (m *mockNvidiaCarbideClient) GetSite(
+	ctx context.Context, org string, siteId string,
+) (*bmm.Site, *http.Response, error) {
+	if m.getSiteFunc != nil {
+		return m.getSiteFunc(ctx, org, siteId)
+	}
+	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
+}
+
+func (m *mockNvidiaCarbideClient) GetInstanceType(
+	ctx context.Context, org string, instanceTypeId string,
+) (*bmm.InstanceType, *http.Response, error) {
+	if m.getInstanceTypeFunc != nil {
+		return m.getInstanceTypeFunc(ctx, org, instanceTypeId)
+	}
+	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
+}
+
+func (m *mockNvidiaCarbideClient) GetMachine(
+	ctx context.Context, org string, machineId string,
+) (*bmm.Machine, *http.Response, error) {
+	if m.getMachineFunc != nil {
+		return m.getMachineFunc(ctx, org, machineId)
+	}
+	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
 }
 
 var _ = Describe("InstancesV2 Interface", func() {
