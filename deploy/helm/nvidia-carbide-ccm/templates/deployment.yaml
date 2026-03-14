@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nvidia-carbide-ccm.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nvidia-carbide-ccm.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nvidia-carbide-ccm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nvidia-carbide-ccm.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "nvidia-carbide-ccm.fullname" . }}
+      hostNetwork: true
+      containers:
+        - name: cloud-controller-manager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /nvidia-carbide-cloud-controller-manager
+            - --cloud-provider=nvidia-carbide
+            - --cloud-config=/etc/kubernetes/cloud-config
+            - --use-service-account-credentials=true
+            - --leader-elect=true
+            - --leader-elect-resource-name={{ include "nvidia-carbide-ccm.fullname" . }}
+            - --v={{ .Values.logLevel }}
+          volumeMounts:
+            - name: cloud-config
+              mountPath: /etc/kubernetes
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 10258
+              scheme: HTTPS
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+      volumes:
+        - name: cloud-config
+          secret:
+            secretName: {{ include "nvidia-carbide-ccm.secretName" . }}
+            items:
+              - key: cloud-config
+                path: cloud-config
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

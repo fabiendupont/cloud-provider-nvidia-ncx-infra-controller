@@ -18,8 +18,9 @@ package main
 
 import (
 	"os"
+	"os/signal"
+	"syscall"
 
-	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider/app"
 	"k8s.io/cloud-provider/app/config"
@@ -42,6 +43,21 @@ func main() {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
 
+	// Set up signal-aware stop channel so SIGTERM/SIGINT triggers graceful shutdown.
+	// The CCM framework uses this channel to release leader election and drain controllers.
+	stopCh := make(chan struct{})
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		sig := <-sigCh
+		klog.InfoS("Received signal, initiating graceful shutdown", "signal", sig)
+		close(stopCh)
+		// Second signal forces immediate exit
+		sig = <-sigCh
+		klog.InfoS("Received second signal, forcing exit", "signal", sig)
+		os.Exit(1)
+	}()
+
 	fss := cliflag.NamedFlagSets{}
 	command := app.NewCloudControllerManagerCommand(
 		ccmOptions,
@@ -49,9 +65,10 @@ func main() {
 		app.DefaultInitFuncConstructors,
 		names.CCMControllerAliases(),
 		fss,
-		wait.NeverStop,
+		stopCh,
 	)
 	code := cli.Run(command)
+	klog.InfoS("NVIDIA Carbide CCM exiting", "code", code)
 	os.Exit(code)
 }
 

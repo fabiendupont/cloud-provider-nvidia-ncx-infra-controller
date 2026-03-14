@@ -78,6 +78,22 @@ func (c *NvidiaCarbideCloud) machineHealthLabels(ctx context.Context, instance *
 		}
 	}
 
+	// Detect health status transitions for logging
+	var previousHealthy string
+	if cached, ok := c.machineHealthCache.Load(*machineID); ok {
+		prev := cached.(*machineHealthCacheEntry)
+		if prev.labels != nil {
+			previousHealthy = prev.labels[LabelHealthy]
+		}
+	}
+	var currentHealthy string
+	if labels != nil {
+		currentHealthy = labels[LabelHealthy]
+	}
+	if previousHealthy != "" && currentHealthy != "" && previousHealthy != currentHealthy {
+		klog.V(2).InfoS("Machine health status changed", "machineID", *machineID, "previous", previousHealthy, "current", currentHealthy)
+	}
+
 	c.machineHealthCache.Store(*machineID, &machineHealthCacheEntry{
 		labels:    labels,
 		expiresAt: time.Now().Add(machineHealthCacheTTL),

@@ -116,4 +116,4 @@ require (
 )
 
 // Pseudo-version until upstream tags the sdk/standard sub-module
-replace github.com/nvidia/bare-metal-manager-rest/sdk/standard => github.com/nvidia/bare-metal-manager-rest/sdk/standard v0.0.0-20260312022756-f3bba0a54054
+replace github.com/nvidia/bare-metal-manager-rest/sdk/standard => github.com/nvidia/bare-metal-manager-rest/sdk/standard v0.0.0-20260312230854-b38c365f5a3a

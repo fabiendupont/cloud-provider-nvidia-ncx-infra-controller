@@ -1,0 +1,38 @@
+image:
+  repository: ghcr.io/fabiendupont/cloud-provider-nvidia-carbide
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Cloud config content (YAML). Create manually or supply via --set-file.
+# Required fields: endpoint, orgName, token, siteId, tenantId
+cloudConfig: ""
+
+# Reference an existing Secret instead of creating one from cloudConfig.
+# When set, cloudConfig is ignored and no Secret is created.
+existingSecret: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node.cloudprovider.kubernetes.io/uninitialized
+    operator: Exists
+    effect: NoSchedule
+
+logLevel: 2

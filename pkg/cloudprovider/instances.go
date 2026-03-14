@@ -56,6 +56,7 @@ func (c *NvidiaCarbideCloud) InstanceExists(ctx context.Context, node *v1.Node) 
 		return false, nil
 	}
 
+	klog.V(2).InfoS("Instance exists", "node", node.Name, "instanceID", parsed.InstanceID)
 	return true, nil
 }
 
@@ -84,10 +85,12 @@ func (c *NvidiaCarbideCloud) InstanceShutdown(ctx context.Context, node *v1.Node
 		switch *instance.Status {
 		case bmm.INSTANCESTATUS_TERMINATING,
 			bmm.INSTANCESTATUS_ERROR:
+			klog.V(2).InfoS("Instance is shut down", "node", node.Name, "instanceID", parsed.InstanceID, "status", *instance.Status)
 			return true, nil
 		// "Terminated" has no SDK constant (the OpenAPI spec does not define it),
 		// but the platform can return it after an instance finishes terminating.
 		case "Terminated":
+			klog.V(2).InfoS("Instance is shut down", "node", node.Name, "instanceID", parsed.InstanceID, "status", "Terminated")
 			return true, nil
 		default:
 			return false, nil
@@ -245,6 +248,7 @@ func (c *NvidiaCarbideCloud) extractNodeAddresses(instance *bmm.Instance, nodeNa
 					Type:    v1.NodeInternalIP,
 					Address: ipAddr,
 				})
+				klog.V(2).InfoS("Resolved node internal IP", "node", nodeName, "address", ipAddr)
 				foundInternalIP = true
 				break
 			}
