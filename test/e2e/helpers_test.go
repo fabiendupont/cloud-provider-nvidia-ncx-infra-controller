@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -199,11 +200,25 @@ func setupInfrastructureViaAPI(token, orgName, prefix string) (siteID, tenantID 
 	childIPBlockID := firstConstraint["derivedResourceId"].(string)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Child IP Block ID: %s\n", childIPBlockID)
 
-	// Create VPC (validates the full Temporal workflow path through the site-agent)
-	vpcResult, status := carbideAPIRequest("POST", apiBase+"/vpc", token, map[string]interface{}{
-		"name": prefix + "-vpc", "siteId": siteID,
-	})
-	Expect(status).To(Equal(http.StatusCreated), "Failed to create VPC: %v", vpcResult)
+	// Create VPC (validates the full Temporal workflow path through the site-agent).
+	// The forge→site-agent gRPC connection may not be established immediately after
+	// the stack starts, so retry with backoff until the connection is ready.
+	var vpcResult map[string]interface{}
+	var vpcStatus int
+	const maxRetries = 12
+	for i := range maxRetries {
+		vpcResult, vpcStatus = carbideAPIRequest("POST", apiBase+"/vpc", token, map[string]interface{}{
+			"name": fmt.Sprintf("%s-vpc-%d", prefix, i), "siteId": siteID,
+		})
+		if vpcStatus == http.StatusCreated {
+			break
+		}
+		_, _ = fmt.Fprintf(GinkgoWriter,
+			"VPC creation attempt %d/%d failed (status %d), waiting for gRPC readiness...\n",
+			i+1, maxRetries, vpcStatus)
+		time.Sleep(10 * time.Second)
+	}
+	Expect(vpcStatus).To(Equal(http.StatusCreated), "Failed to create VPC after %d attempts: %v", maxRetries, vpcResult)
 	vpcID := vpcResult["id"].(string)
 
 	// Create Subnet (uses child IP block, not the parent)
