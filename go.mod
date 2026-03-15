@@ -8,8 +8,8 @@ require (
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/api v0.35.0
-	k8s.io/apimachinery v0.35.0
+	k8s.io/api v0.35.2
+	k8s.io/apimachinery v0.35.2
 	k8s.io/cloud-provider v0.35.0
 	k8s.io/component-base v0.35.0
 	k8s.io/klog/v2 v2.130.1
@@ -102,7 +102,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	k8s.io/apiserver v0.35.0 // indirect
-	k8s.io/client-go v0.35.0 // indirect
+	k8s.io/client-go v0.35.2 // indirect
 	k8s.io/component-helpers v0.35.0 // indirect
 	k8s.io/controller-manager v0.35.0 // indirect
 	k8s.io/kms v0.35.0 // indirect
