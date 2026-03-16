@@ -24,7 +24,7 @@ jobs:
       - name: Checkout operator
         uses: actions/checkout@v4
         with:
-          repository: fabiendupont/bare-metal-manager-operator
+          repository: fabiendupont/nvidia-bare-metal-manager-operator
           path: bare-metal-manager-operator
 
       - name: Checkout Carbide source repos
