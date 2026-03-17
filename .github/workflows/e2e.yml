@@ -210,11 +210,21 @@ jobs:
           # Create namespace and PostgreSQL user secrets
           kubectl create ns nvidia-carbide-e2e || true
           for svc in carbide forge rla psm; do
-            kubectl create secret generic "pg-$svc" \
-              -n nvidia-carbide-e2e \
-              --from-literal=user=$svc \
-              --from-literal=password=e2e-test-password \
-              2>/dev/null || true
+            kubectl apply -f - <<EOSECRET
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: pg-$svc
+            namespace: nvidia-carbide-e2e
+          stringData:
+            host: postgres.postgres-e2e.svc
+            port: "5432"
+            user: $svc
+            username: $svc
+            password: e2e-test-password
+            dbname: $svc
+            uri: "postgres://$svc:e2e-test-password@postgres.postgres-e2e.svc:5432/$svc?sslmode=disable"
+          EOSECRET
           done
 
           kubectl apply -f - <<'EOF'
