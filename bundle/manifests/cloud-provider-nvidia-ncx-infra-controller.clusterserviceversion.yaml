@@ -3,23 +3,23 @@ kind: ClusterServiceVersion
 metadata:
   annotations:
     alm-examples: '[]'
-  name: cloud-provider-nvidia-carbide.v0.1.0
+  name: cloud-provider-nvidia-ncx-infra-controller.v0.1.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
   customresourcedefinitions:
     owned: []
   description: |
-    Kubernetes Cloud Controller Manager (CCM) for NVIDIA Carbide bare-metal platform.
+    Kubernetes Cloud Controller Manager (CCM) for NICo bare-metal platform.
 
-    The NVIDIA Carbide Cloud Provider implements:
+    The NICo Cloud Provider implements:
 
     - **Node Controller**: Initializes nodes with provider IDs, labels nodes with
       zone and region information, updates node addresses, and removes terminated nodes.
-    - **Zone Support**: Maps NVIDIA Carbide sites to Kubernetes zones for
+    - **Zone Support**: Maps NICo sites to Kubernetes zones for
       zone-aware pod scheduling and volume topology.
-    - **Instance Metadata**: Queries the NVIDIA Carbide API for node/instance information.
-  displayName: Cloud Provider NVIDIA Carbide
+    - **Instance Metadata**: Queries the NICo API for node/instance information.
+  displayName: Cloud Provider NICo
   icon:
     - base64data: ""
       mediatype: image/svg+xml
@@ -131,28 +131,28 @@ spec:
           serviceAccountName: cloud-controller-manager
       deployments:
         - label:
-            app: nvidia-carbide-cloud-controller-manager
-          name: nvidia-carbide-cloud-controller-manager
+            app: nico-cloud-controller-manager
+          name: nico-cloud-controller-manager
           spec:
             replicas: 1
             selector:
               matchLabels:
-                app: nvidia-carbide-cloud-controller-manager
+                app: nico-cloud-controller-manager
             template:
               metadata:
                 labels:
-                  app: nvidia-carbide-cloud-controller-manager
+                  app: nico-cloud-controller-manager
               spec:
                 containers:
                   - command:
-                      - /nvidia-carbide-cloud-controller-manager
-                      - --cloud-provider=nvidia-carbide
-                      - --cloud-config=/etc/nvidia-carbide/cloud-config
+                      - /nico-cloud-controller-manager
+                      - --cloud-provider=nico
+                      - --cloud-config=/etc/nico/cloud-config
                       - --use-service-account-credentials=true
                       - --leader-elect=true
-                      - --leader-elect-resource-name=nvidia-carbide-cloud-controller-manager
+                      - --leader-elect-resource-name=nico-cloud-controller-manager
                       - --v=2
-                    image: ghcr.io/fabiendupont/cloud-provider-nvidia-carbide:v0.1.0
+                    image: ghcr.io/fabiendupont/cloud-provider-nvidia-ncx-infra-controller:v0.1.0
                     imagePullPolicy: IfNotPresent
                     livenessProbe:
                       httpGet:
@@ -171,7 +171,7 @@ spec:
                         cpu: 100m
                         memory: 128Mi
                     volumeMounts:
-                      - mountPath: /etc/nvidia-carbide
+                      - mountPath: /etc/nico
                         name: cloud-config
                         readOnly: true
                 nodeSelector:
@@ -193,7 +193,7 @@ spec:
                       items:
                         - key: cloud-config
                           path: cloud-config
-                      secretName: nvidia-carbide-cloud-config
+                      secretName: nico-cloud-config
     strategy: deployment
   installModes:
     - supported: true
@@ -207,13 +207,13 @@ spec:
   keywords:
     - cloud-provider
     - nvidia
-    - carbide
+    - nico
     - bare-metal
     - kubernetes
     - ccm
   links:
     - name: Source Code
-      url: https://github.com/fabiendupont/cloud-provider-nvidia-carbide
+      url: https://github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller
   maintainers:
     - email: fdupont@nvidia.com
       name: Fabien Dupont

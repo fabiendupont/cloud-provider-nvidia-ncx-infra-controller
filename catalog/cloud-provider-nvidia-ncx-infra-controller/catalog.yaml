@@ -1,0 +1,23 @@
+---
+schema: olm.package
+name: cloud-provider-nvidia-ncx-infra-controller
+defaultChannel: alpha
+description: >-
+  Kubernetes Cloud Controller Manager (CCM) for NICo bare-metal platform.
+  Manages node lifecycle, zones, and instance metadata.
+---
+schema: olm.channel
+package: cloud-provider-nvidia-ncx-infra-controller
+name: alpha
+entries:
+  - name: cloud-provider-nvidia-ncx-infra-controller.v0.1.0
+---
+schema: olm.bundle
+package: cloud-provider-nvidia-ncx-infra-controller
+name: cloud-provider-nvidia-ncx-infra-controller.v0.1.0
+image: ghcr.io/fabiendupont/cloud-provider-nvidia-ncx-infra-controller-bundle:v0.1.0
+properties:
+  - type: olm.package
+    value:
+      packageName: cloud-provider-nvidia-ncx-infra-controller
+      version: 0.1.0

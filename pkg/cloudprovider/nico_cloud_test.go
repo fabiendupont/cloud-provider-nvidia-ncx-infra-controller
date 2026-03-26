@@ -30,7 +30,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "valid config",
 			config: &Config{
-				Endpoint: "https://api.carbide.test",
+				Endpoint: "https://api.nico.test",
 				OrgName:  "test-org",
 				Token:    "test-token",
 				SiteID:   "test-site",
@@ -51,7 +51,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "missing orgName",
 			config: &Config{
-				Endpoint: "https://api.carbide.test",
+				Endpoint: "https://api.nico.test",
 				Token:    "test-token",
 				SiteID:   "test-site",
 				TenantID: "test-tenant",
@@ -61,7 +61,7 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "missing token",
 			config: &Config{
-				Endpoint: "https://api.carbide.test",
+				Endpoint: "https://api.nico.test",
 				OrgName:  "test-org",
 				SiteID:   "test-site",
 				TenantID: "test-tenant",
@@ -82,7 +82,7 @@ func TestConfigValidation(t *testing.T) {
 
 func TestParseConfig_YAML(t *testing.T) {
 	yamlConfig := `
-endpoint: "https://api.carbide.test"
+endpoint: "https://api.nico.test"
 orgName: "test-org"
 token: "test-token"
 siteId: "test-site"
@@ -94,8 +94,8 @@ tenantId: "test-tenant"
 		t.Fatalf("parseConfig() failed: %v", err)
 	}
 
-	if config.Endpoint != "https://api.carbide.test" {
-		t.Errorf("Expected endpoint=https://api.carbide.test, got %s", config.Endpoint)
+	if config.Endpoint != "https://api.nico.test" {
+		t.Errorf("Expected endpoint=https://api.nico.test, got %s", config.Endpoint)
 	}
 	if config.OrgName != "test-org" {
 		t.Errorf("Expected orgName=test-org, got %s", config.OrgName)
@@ -106,14 +106,14 @@ tenantId: "test-tenant"
 }
 
 func TestProviderName(t *testing.T) {
-	cloud := &NvidiaCarbideCloud{}
+	cloud := &NicoCloud{}
 	if cloud.ProviderName() != ProviderName {
 		t.Errorf("Expected provider name %s, got %s", ProviderName, cloud.ProviderName())
 	}
 }
 
-func TestNvidiaCarbideCloud_Interfaces(t *testing.T) {
-	cloud := &NvidiaCarbideCloud{}
+func TestNicoCloud_Interfaces(t *testing.T) {
+	cloud := &NicoCloud{}
 
 	// Test that InstancesV2 is supported
 	if instances, supported := cloud.InstancesV2(); !supported || instances == nil {

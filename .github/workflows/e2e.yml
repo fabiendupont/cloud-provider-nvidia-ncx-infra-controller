@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      KUBECONFIG: /tmp/carbide-e2e-kubeconfig
-      NVIDIA_CARBIDE_API_ENDPOINT: http://localhost:8080
-      KIND_CLUSTER: carbide-ccm-e2e
-      OPERATOR_IMG: localhost/nvidia-carbide-operator:e2e
-      CORE_REPO_PATH: /tmp/carbide/bare-metal-manager-core
-      REST_REPO_PATH: /tmp/carbide/bare-metal-manager-rest
+      KUBECONFIG: /tmp/nico-e2e-kubeconfig
+      NICO_API_ENDPOINT: http://localhost:8080
+      KIND_CLUSTER: nico-ccm-e2e
+      OPERATOR_IMG: localhost/nico-operator:e2e
+      CORE_REPO_PATH: /tmp/nico/ncx-infra-controller-core
+      REST_REPO_PATH: /tmp/nico/ncx-infra-controller-rest
     steps:
       - name: Checkout provider
         uses: actions/checkout@v4
@@ -25,13 +25,13 @@ jobs:
       - name: Checkout operator
         uses: actions/checkout@v4
         with:
-          repository: fabiendupont/nvidia-bare-metal-manager-operator
-          path: bare-metal-manager-operator
+          repository: fabiendupont/nvidia-ncx-infra-controller-operator
+          path: ncx-infra-controller-operator
 
-      - name: Checkout Carbide source repos
+      - name: Checkout NICo source repos
         run: |
-          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/NVIDIA/bare-metal-manager-core.git $CORE_REPO_PATH
-          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/NVIDIA/bare-metal-manager-rest.git $REST_REPO_PATH
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/NVIDIA/ncx-infra-controller-core.git $CORE_REPO_PATH
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/NVIDIA/ncx-infra-controller-rest.git $REST_REPO_PATH
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -50,7 +50,7 @@ jobs:
           sudo mv ./kind /usr/local/bin/kind
 
       - name: Build operator and service images
-        working-directory: bare-metal-manager-operator
+        working-directory: ncx-infra-controller-operator
         run: |
           make docker-build IMG=$OPERATOR_IMG DOCKERFILE=Dockerfile.ci
           make docker-build-e2e-services E2E_REGISTRY=localhost E2E_IMAGE_TAG=e2e
@@ -60,10 +60,10 @@ jobs:
           kind create cluster --name $KIND_CLUSTER
           kind load docker-image $OPERATOR_IMG --name $KIND_CLUSTER
           for img in \
-            localhost/carbide-rest-api:e2e \
-            localhost/carbide-rest-workflow:e2e \
-            localhost/carbide-rest-site-manager:e2e \
-            localhost/carbide-rest-db:e2e \
+            localhost/nico-rest-api:e2e \
+            localhost/nico-rest-workflow:e2e \
+            localhost/nico-rest-site-manager:e2e \
+            localhost/nico-rest-db:e2e \
             docker.io/library/postgres:16-alpine; do
             docker pull "$img" 2>/dev/null || true
             kind load docker-image "$img" --name $KIND_CLUSTER
@@ -105,9 +105,9 @@ jobs:
             name: postgres-credentials
             namespace: postgres-e2e
           stringData:
-            POSTGRES_USER: carbide
+            POSTGRES_USER: nico
             POSTGRES_PASSWORD: e2e-test-password
-            POSTGRES_DB: carbide
+            POSTGRES_DB: nico
           ---
           apiVersion: apps/v1
           kind: StatefulSet
@@ -135,7 +135,7 @@ jobs:
                       name: postgres-credentials
                   readinessProbe:
                     exec:
-                      command: ["pg_isready", "-U", "carbide"]
+                      command: ["pg_isready", "-U", "nico"]
                     initialDelaySeconds: 5
                     periodSeconds: 5
           ---
@@ -157,22 +157,22 @@ jobs:
         run: |
           for db in forge rla psm temporal temporal_visibility; do
             kubectl exec postgres-0 -n postgres-e2e -- \
-              psql -U carbide -c "CREATE DATABASE $db;" 2>/dev/null || true
+              psql -U nico -c "CREATE DATABASE $db;" 2>/dev/null || true
             kubectl exec postgres-0 -n postgres-e2e -- \
-              psql -U carbide -c "CREATE USER $db WITH PASSWORD 'e2e-test-password';" 2>/dev/null || true
+              psql -U nico -c "CREATE USER $db WITH PASSWORD 'e2e-test-password';" 2>/dev/null || true
             kubectl exec postgres-0 -n postgres-e2e -- \
-              psql -U carbide -c "GRANT ALL PRIVILEGES ON DATABASE $db TO $db;" 2>/dev/null || true
+              psql -U nico -c "GRANT ALL PRIVILEGES ON DATABASE $db TO $db;" 2>/dev/null || true
           done
 
       - name: Deploy operator
-        working-directory: bare-metal-manager-operator
+        working-directory: ncx-infra-controller-operator
         run: |
           # Create self-signed ClusterIssuer
           kubectl apply -f - <<'EOF'
           apiVersion: cert-manager.io/v1
           kind: ClusterIssuer
           metadata:
-            name: carbide-e2e-selfsigned
+            name: nico-e2e-selfsigned
           spec:
             selfSigned: {}
           EOF
@@ -182,15 +182,15 @@ jobs:
 
           # Wait for operator deployment to be available
           kubectl wait --for=condition=Available deployment/controller-manager \
-            -n nvidia-carbide --timeout=120s
+            -n nico --timeout=120s
 
           # Wait for webhook serving cert (operator needs it for CR validation)
           kubectl wait --for=condition=Ready certificate/serving-cert \
-            -n nvidia-carbide --timeout=180s
+            -n nico --timeout=180s
 
           # Wait for webhook-server-cert secret
           for i in $(seq 1 30); do
-            if kubectl get secret webhook-server-cert -n nvidia-carbide &>/dev/null; then
+            if kubectl get secret webhook-server-cert -n nico &>/dev/null; then
               echo "Webhook cert secret found"
               break
             fi
@@ -199,24 +199,24 @@ jobs:
 
           # Restart controller-manager to pick up the webhook cert
           kubectl delete pod -l control-plane=controller-manager \
-            -n nvidia-carbide --wait=true
+            -n nico --wait=true
           kubectl wait --for=condition=Available deployment/controller-manager \
-            -n nvidia-carbide --timeout=120s
+            -n nico --timeout=120s
 
           # Give webhook server time to start
           sleep 5
 
-      - name: Create CarbideDeployment
+      - name: Create NicoDeployment
         run: |
           # Create namespace and PostgreSQL user secrets
-          kubectl create ns nvidia-carbide-e2e || true
-          for svc in carbide forge rla psm; do
+          kubectl create ns nico-e2e || true
+          for svc in nico forge rla psm; do
             kubectl apply -f - <<EOSECRET
           apiVersion: v1
           kind: Secret
           metadata:
             name: pg-$svc
-            namespace: nvidia-carbide-e2e
+            namespace: nico-e2e
           stringData:
             host: postgres.postgres-e2e.svc
             port: "5432"
@@ -229,11 +229,11 @@ jobs:
           done
 
           kubectl apply -f - <<'EOF'
-          apiVersion: carbide.nvidia.com/v1alpha1
-          kind: CarbideDeployment
+          apiVersion: nico.nvidia.com/v1alpha1
+          kind: NicoDeployment
           metadata:
             name: e2e-ccm
-            namespace: nvidia-carbide-e2e
+            namespace: nico-e2e
           spec:
             profile: management
             version: "latest"
@@ -241,10 +241,10 @@ jobs:
               mode: certManager
               certManager:
                 issuerRef:
-                  name: carbide-e2e-selfsigned
+                  name: nico-e2e-selfsigned
                   kind: ClusterIssuer
             infrastructure:
-              namespace: nvidia-carbide-e2e
+              namespace: nico-e2e
               postgresql:
                 mode: external
                 connection:
@@ -252,8 +252,8 @@ jobs:
                   port: 5432
                   sslMode: disable
                   userSecrets:
-                    carbide:
-                      name: pg-carbide
+                    nico:
+                      name: pg-nico
                     forge:
                       name: pg-forge
                     rla:
@@ -261,7 +261,7 @@ jobs:
                     psm:
                       name: pg-psm
             core:
-              namespace: nvidia-carbide-e2e
+              namespace: nico-e2e
               api:
                 port: 1079
               dhcp:
@@ -287,36 +287,36 @@ jobs:
 
       - name: Wait for REST API
         run: |
-          echo "Checking CarbideDeployment status..."
-          kubectl get carbidedeployment -n nvidia-carbide-e2e -o yaml || true
+          echo "Checking NicoDeployment status..."
+          kubectl get nicodeployment -n nico-e2e -o yaml || true
 
           echo "Checking operator logs..."
           kubectl logs -l control-plane=controller-manager \
-            -n nvidia-carbide --tail=50 || true
+            -n nico --tail=50 || true
 
           echo "Waiting for REST API deployment..."
           for i in $(seq 1 60); do
-            if kubectl get deployment carbide-rest-api -n nvidia-carbide-e2e &>/dev/null; then
+            if kubectl get deployment nico-rest-api -n nico-e2e &>/dev/null; then
               echo "REST API deployment found"
               break
             fi
             if [ "$i" -eq 60 ]; then
               echo "REST API deployment not found after 60 attempts"
-              echo "--- CarbideDeployment status ---"
-              kubectl get carbidedeployment -n nvidia-carbide-e2e -o yaml || true
+              echo "--- NicoDeployment status ---"
+              kubectl get nicodeployment -n nico-e2e -o yaml || true
               echo "--- Operator logs ---"
               kubectl logs -l control-plane=controller-manager \
-                -n nvidia-carbide --tail=100 || true
+                -n nico --tail=100 || true
               echo "--- All resources in namespace ---"
-              kubectl get all -n nvidia-carbide-e2e || true
+              kubectl get all -n nico-e2e || true
               exit 1
             fi
             echo "Waiting for operator to create REST API deployment ($i/60)..."
             sleep 10
           done
 
-          kubectl wait --for=condition=Available deployment/carbide-rest-api \
-            -n nvidia-carbide-e2e --timeout=300s
+          kubectl wait --for=condition=Available deployment/nico-rest-api \
+            -n nico-e2e --timeout=300s
 
           echo "REST API is ready"
 
@@ -325,8 +325,8 @@ jobs:
           kind get kubeconfig --name $KIND_CLUSTER > $KUBECONFIG
 
           # Start port-forward in background
-          kubectl port-forward svc/carbide-rest-api 8080:8080 \
-            -n nvidia-carbide-e2e &
+          kubectl port-forward svc/nico-rest-api 8080:8080 \
+            -n nico-e2e &
           PF_PID=$!
           echo "PF_PID=$PF_PID" >> $GITHUB_ENV
 

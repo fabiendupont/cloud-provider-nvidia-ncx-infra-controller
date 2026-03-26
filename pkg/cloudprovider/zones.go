@@ -22,11 +22,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 
-	"github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/providerid"
+	"github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/providerid"
 )
 
 // GetZone returns the Zone containing the current zone and locality region
-func (c *NvidiaCarbideCloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
+func (c *NicoCloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 	zone, region := c.resolveZoneAndRegion(ctx, c.siteID)
 	return cloudprovider.Zone{
 		FailureDomain: zone,
@@ -35,7 +35,7 @@ func (c *NvidiaCarbideCloud) GetZone(ctx context.Context) (cloudprovider.Zone, e
 }
 
 // GetZoneByProviderID returns the Zone for a specific provider ID
-func (c *NvidiaCarbideCloud) GetZoneByProviderID(ctx context.Context, providerID string) (cloudprovider.Zone, error) {
+func (c *NicoCloud) GetZoneByProviderID(ctx context.Context, providerID string) (cloudprovider.Zone, error) {
 	parsed, err := providerid.ParseProviderID(providerID)
 	if err != nil {
 		return cloudprovider.Zone{}, err
@@ -54,7 +54,7 @@ func (c *NvidiaCarbideCloud) GetZoneByProviderID(ctx context.Context, providerID
 }
 
 // GetZoneByNodeName returns the Zone for a specific node
-func (c *NvidiaCarbideCloud) GetZoneByNodeName(
+func (c *NicoCloud) GetZoneByNodeName(
 	ctx context.Context, nodeName types.NodeName,
 ) (cloudprovider.Zone, error) {
 	zone, region := c.resolveZoneAndRegion(ctx, c.siteID)

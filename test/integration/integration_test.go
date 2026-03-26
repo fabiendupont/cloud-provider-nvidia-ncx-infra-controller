@@ -32,15 +32,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 
-	nvidiacarbideprovider "github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/cloudprovider"
-	bmm "github.com/nvidia/bare-metal-manager-rest/sdk/standard"
+	nicoprovider "github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/cloudprovider"
+	nico "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 var (
 	ctx        context.Context
 	cancel     context.CancelFunc
 	cloud      cloudprovider.Interface
-	mockClient *mockNvidiaCarbideClient
+	mockClient *mockNicoClient
 )
 
 func TestIntegration(t *testing.T) {
@@ -52,10 +52,10 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	// Create mock client
-	mockClient = &mockNvidiaCarbideClient{}
+	mockClient = &mockNicoClient{}
 
 	// Create cloud provider with mock client
-	cloud = nvidiacarbideprovider.NewNvidiaCarbideCloudWithClient(
+	cloud = nicoprovider.NewNicoCloudWithClient(
 		mockClient,
 		"test-org",
 		"8a880c71-fe4b-4e43-9e24-ebfcb8a84c5f",
@@ -76,32 +76,32 @@ func mockHTTPResponse(statusCode int) *http.Response {
 	}
 }
 
-// mockNvidiaCarbideClient for testing
-type mockNvidiaCarbideClient struct {
-	getInstanceFunc     func(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error)
-	getSiteFunc         func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error)
+// mockNicoClient for testing
+type mockNicoClient struct {
+	getInstanceFunc     func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error)
+	getSiteFunc         func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
 	getInstanceTypeFunc func(
 		ctx context.Context, org string, instanceTypeId string,
-	) (*bmm.InstanceType, *http.Response, error)
-	getMachineFunc func(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error)
+	) (*nico.InstanceType, *http.Response, error)
+	getMachineFunc func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
 }
 
-func (m *mockNvidiaCarbideClient) GetInstance(
+func (m *mockNicoClient) GetInstance(
 	ctx context.Context, org string, instanceId string,
-) (*bmm.Instance, *http.Response, error) {
+) (*nico.Instance, *http.Response, error) {
 	if m.getInstanceFunc != nil {
 		return m.getInstanceFunc(ctx, org, instanceId)
 	}
 
 	// Default: return a running instance with IP addresses
-	status := bmm.InstanceStatus("Running")
+	status := nico.InstanceStatus("Running")
 	id := instanceId
 
-	return &bmm.Instance{
+	return &nico.Instance{
 		Id:     &id,
 		Name:   ptr("test-instance"),
 		Status: &status,
-		Interfaces: []bmm.Interface{
+		Interfaces: []nico.Interface{
 			{
 				IpAddresses: []string{"10.100.1.10"},
 			},
@@ -109,27 +109,27 @@ func (m *mockNvidiaCarbideClient) GetInstance(
 	}, mockHTTPResponse(200), nil
 }
 
-func (m *mockNvidiaCarbideClient) GetSite(
+func (m *mockNicoClient) GetSite(
 	ctx context.Context, org string, siteId string,
-) (*bmm.Site, *http.Response, error) {
+) (*nico.Site, *http.Response, error) {
 	if m.getSiteFunc != nil {
 		return m.getSiteFunc(ctx, org, siteId)
 	}
 	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
 }
 
-func (m *mockNvidiaCarbideClient) GetInstanceType(
+func (m *mockNicoClient) GetInstanceType(
 	ctx context.Context, org string, instanceTypeId string,
-) (*bmm.InstanceType, *http.Response, error) {
+) (*nico.InstanceType, *http.Response, error) {
 	if m.getInstanceTypeFunc != nil {
 		return m.getInstanceTypeFunc(ctx, org, instanceTypeId)
 	}
 	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
 }
 
-func (m *mockNvidiaCarbideClient) GetMachine(
+func (m *mockNicoClient) GetMachine(
 	ctx context.Context, org string, machineId string,
-) (*bmm.Machine, *http.Response, error) {
+) (*nico.Machine, *http.Response, error) {
 	if m.getMachineFunc != nil {
 		return m.getMachineFunc(ctx, org, machineId)
 	}
@@ -144,7 +144,7 @@ var _ = Describe("InstancesV2 Interface", func() {
 
 	BeforeEach(func() {
 		instanceID = uuid.MustParse("12345678-1234-1234-1234-123456789abc")
-		providerID := "nvidia-carbide://test-org/test-tenant/8a880c71-fe4b-4e43-9e24-ebfcb8a84c5f/" + instanceID.String()
+		providerID := "nico://test-org/test-tenant/8a880c71-fe4b-4e43-9e24-ebfcb8a84c5f/" + instanceID.String()
 
 		node = &corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{
@@ -170,7 +170,7 @@ var _ = Describe("InstancesV2 Interface", func() {
 			// Override mock to return 404
 			mockClient.getInstanceFunc = func(
 				ctx context.Context, org string, instanceId string,
-			) (*bmm.Instance, *http.Response, error) {
+			) (*nico.Instance, *http.Response, error) {
 				return nil, mockHTTPResponse(404), fmt.Errorf("not found")
 			}
 
@@ -197,9 +197,9 @@ var _ = Describe("InstancesV2 Interface", func() {
 			// Override mock to return terminated status
 			mockClient.getInstanceFunc = func(
 				ctx context.Context, org string, instanceId string,
-			) (*bmm.Instance, *http.Response, error) {
-				status := bmm.InstanceStatus("Terminated")
-				return &bmm.Instance{
+			) (*nico.Instance, *http.Response, error) {
+				status := nico.InstanceStatus("Terminated")
+				return &nico.Instance{
 					Id:     &instanceId,
 					Status: &status,
 				}, mockHTTPResponse(200), nil
@@ -224,8 +224,8 @@ var _ = Describe("InstancesV2 Interface", func() {
 			Expect(metadata).NotTo(BeNil())
 			Expect(metadata.ProviderID).To(Equal(node.Spec.ProviderID))
 			Expect(metadata.NodeAddresses).NotTo(BeEmpty())
-			Expect(metadata.Zone).To(ContainSubstring("nvidia-carbide-zone"))
-			Expect(metadata.Region).To(ContainSubstring("nvidia-carbide-region"))
+			Expect(metadata.Zone).To(ContainSubstring("nico-zone"))
+			Expect(metadata.Region).To(ContainSubstring("nico-region"))
 		})
 	})
 })
@@ -238,22 +238,22 @@ var _ = Describe("Zones Interface", func() {
 
 			zone, err := zones.GetZone(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(zone.FailureDomain).To(ContainSubstring("nvidia-carbide-zone"))
-			Expect(zone.Region).To(ContainSubstring("nvidia-carbide-region"))
+			Expect(zone.FailureDomain).To(ContainSubstring("nico-zone"))
+			Expect(zone.Region).To(ContainSubstring("nico-region"))
 		})
 	})
 
 	Describe("GetZoneByProviderID", func() {
 		It("should return zone for provider ID", func() {
 			zones, _ := cloud.Zones()
-			providerID := "nvidia-carbide://test-org/test-tenant/" +
+			providerID := "nico://test-org/test-tenant/" +
 				"8a880c71-fe4b-4e43-9e24-ebfcb8a84c5f/" +
 				"12345678-1234-1234-1234-123456789abc"
 
 			zone, err := zones.GetZoneByProviderID(ctx, providerID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(zone.FailureDomain).To(ContainSubstring("nvidia-carbide-zone"))
-			Expect(zone.Region).To(ContainSubstring("nvidia-carbide-region"))
+			Expect(zone.FailureDomain).To(ContainSubstring("nico-zone"))
+			Expect(zone.Region).To(ContainSubstring("nico-region"))
 		})
 	})
 
@@ -264,8 +264,8 @@ var _ = Describe("Zones Interface", func() {
 
 			zone, err := zones.GetZoneByNodeName(ctx, nodeName)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(zone.FailureDomain).To(ContainSubstring("nvidia-carbide-zone"))
-			Expect(zone.Region).To(ContainSubstring("nvidia-carbide-region"))
+			Expect(zone.FailureDomain).To(ContainSubstring("nico-zone"))
+			Expect(zone.Region).To(ContainSubstring("nico-region"))
 		})
 	})
 })

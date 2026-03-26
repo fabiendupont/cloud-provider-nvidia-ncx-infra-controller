@@ -1,14 +1,14 @@
 {{/*
 Chart name.
 */}}
-{{- define "nvidia-carbide-ccm.name" -}}
+{{- define "nico-ccm.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Fully qualified app name.
 */}}
-{{- define "nvidia-carbide-ccm.fullname" -}}
+{{- define "nico-ccm.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,8 +24,8 @@ Fully qualified app name.
 {{/*
 Common labels.
 */}}
-{{- define "nvidia-carbide-ccm.labels" -}}
-app.kubernetes.io/name: {{ include "nvidia-carbide-ccm.name" . }}
+{{- define "nico-ccm.labels" -}}
+app.kubernetes.io/name: {{ include "nico-ccm.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
@@ -35,18 +35,18 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | 
 {{/*
 Selector labels.
 */}}
-{{- define "nvidia-carbide-ccm.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "nvidia-carbide-ccm.name" . }}
+{{- define "nico-ccm.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "nico-ccm.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Secret name for cloud config.
 */}}
-{{- define "nvidia-carbide-ccm.secretName" -}}
+{{- define "nico-ccm.secretName" -}}
 {{- if .Values.existingSecret }}
 {{- .Values.existingSecret }}
 {{- else }}
-{{- include "nvidia-carbide-ccm.fullname" . }}
+{{- include "nico-ccm.fullname" . }}
 {{- end }}
 {{- end }}

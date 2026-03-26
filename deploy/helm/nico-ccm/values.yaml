@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/fabiendupont/cloud-provider-nvidia-carbide
+  repository: ghcr.io/fabiendupont/cloud-provider-nvidia-ncx-infra-controller
   tag: latest
   pullPolicy: IfNotPresent
 

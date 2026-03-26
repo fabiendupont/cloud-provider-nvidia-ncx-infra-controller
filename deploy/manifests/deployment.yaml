@@ -1,33 +1,33 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nvidia-carbide-cloud-controller-manager
+  name: nico-cloud-controller-manager
   namespace: kube-system
   labels:
-    app: nvidia-carbide-cloud-controller-manager
+    app: nico-cloud-controller-manager
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: nvidia-carbide-cloud-controller-manager
+      app: nico-cloud-controller-manager
   template:
     metadata:
       labels:
-        app: nvidia-carbide-cloud-controller-manager
+        app: nico-cloud-controller-manager
     spec:
-      serviceAccountName: nvidia-carbide-cloud-controller-manager
+      serviceAccountName: nico-cloud-controller-manager
       hostNetwork: true
       containers:
         - name: cloud-controller-manager
-          image: ghcr.io/fabiendupont/cloud-provider-nvidia-carbide:latest
+          image: ghcr.io/fabiendupont/cloud-provider-nvidia-ncx-infra-controller:latest
           imagePullPolicy: IfNotPresent
           command:
-            - /nvidia-carbide-cloud-controller-manager
-            - --cloud-provider=nvidia-carbide
+            - /nico-cloud-controller-manager
+            - --cloud-provider=nico
             - --cloud-config=/etc/kubernetes/cloud-config
             - --use-service-account-credentials=true
             - --leader-elect=true
-            - --leader-elect-resource-name=nvidia-carbide-cloud-controller-manager
+            - --leader-elect-resource-name=nico-cloud-controller-manager
             - --v=2
           volumeMounts:
             - name: cloud-config
@@ -51,7 +51,7 @@ spec:
       volumes:
         - name: cloud-config
           secret:
-            secretName: nvidia-carbide-cloud-config
+            secretName: nico-cloud-config
             items:
               - key: cloud-config
                 path: cloud-config

@@ -29,8 +29,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/cloudprovider"
-	"github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/providerid"
+	"github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/cloudprovider"
+	"github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/providerid"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,7 +47,7 @@ const (
 func TestE2ELive(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter,
-		"Starting cloud-provider-nvidia-carbide live e2e test suite\n")
+		"Starting cloud-provider-nico live e2e test suite\n")
 	RunSpecs(t, "Live E2E Suite")
 }
 
@@ -60,9 +60,9 @@ var _ = Describe("Live Cloud Provider E2E", Label("live"), func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 
-		endpoint = os.Getenv("NVIDIA_CARBIDE_API_ENDPOINT")
+		endpoint = os.Getenv("NICO_API_ENDPOINT")
 		if endpoint == "" {
-			Skip("NVIDIA_CARBIDE_API_ENDPOINT must be set")
+			Skip("NICO_API_ENDPOINT must be set")
 		}
 	})
 
@@ -71,11 +71,11 @@ var _ = Describe("Live Cloud Provider E2E", Label("live"), func() {
 			cloudConfig := createCloudConfigSecret(
 				endpoint, testOrgName, testToken, testSiteID, testTenantID)
 
-			provider, err := cloudprovider.NewNvidiaCarbideCloud(
+			provider, err := cloudprovider.NewNicoCloud(
 				strings.NewReader(cloudConfig))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(provider).NotTo(BeNil())
-			Expect(provider.ProviderName()).To(Equal("nvidia-carbide"))
+			Expect(provider.ProviderName()).To(Equal("nico"))
 
 			instancesV2, supported := provider.InstancesV2()
 			Expect(supported).To(BeTrue())
@@ -91,7 +91,7 @@ var _ = Describe("Live Cloud Provider E2E", Label("live"), func() {
 				cloudConfig := createCloudConfigSecret(
 					endpoint, testOrgName, testToken, testSiteID, testTenantID)
 
-				provider, err := cloudprovider.NewNvidiaCarbideCloud(
+				provider, err := cloudprovider.NewNicoCloud(
 					strings.NewReader(cloudConfig))
 				Expect(err).NotTo(HaveOccurred())
 

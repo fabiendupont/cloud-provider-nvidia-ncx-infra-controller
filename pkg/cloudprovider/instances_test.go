@@ -26,49 +26,49 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	bmm "github.com/nvidia/bare-metal-manager-rest/sdk/standard"
+	nico "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 
-	"github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/providerid"
+	"github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/providerid"
 )
 
-// mockNvidiaCarbideClient is a mock for testing
-type mockNvidiaCarbideClient struct {
-	getInstance     func(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error)
-	getSite         func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error)
-	getInstanceType func(ctx context.Context, org string, instanceTypeId string) (*bmm.InstanceType, *http.Response, error)
-	getMachine      func(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error)
+// mockNicoClient is a mock for testing
+type mockNicoClient struct {
+	getInstance     func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error)
+	getSite         func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
+	getInstanceType func(ctx context.Context, org string, instanceTypeId string) (*nico.InstanceType, *http.Response, error)
+	getMachine      func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
 }
 
-func (m *mockNvidiaCarbideClient) GetInstance(
+func (m *mockNicoClient) GetInstance(
 	ctx context.Context, org string, instanceId string,
-) (*bmm.Instance, *http.Response, error) {
+) (*nico.Instance, *http.Response, error) {
 	if m.getInstance != nil {
 		return m.getInstance(ctx, org, instanceId)
 	}
 	return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
 }
 
-func (m *mockNvidiaCarbideClient) GetSite(
+func (m *mockNicoClient) GetSite(
 	ctx context.Context, org string, siteId string,
-) (*bmm.Site, *http.Response, error) {
+) (*nico.Site, *http.Response, error) {
 	if m.getSite != nil {
 		return m.getSite(ctx, org, siteId)
 	}
 	return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
 }
 
-func (m *mockNvidiaCarbideClient) GetInstanceType(
+func (m *mockNicoClient) GetInstanceType(
 	ctx context.Context, org string, instanceTypeId string,
-) (*bmm.InstanceType, *http.Response, error) {
+) (*nico.InstanceType, *http.Response, error) {
 	if m.getInstanceType != nil {
 		return m.getInstanceType(ctx, org, instanceTypeId)
 	}
 	return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
 }
 
-func (m *mockNvidiaCarbideClient) GetMachine(
+func (m *mockNicoClient) GetMachine(
 	ctx context.Context, org string, machineId string,
-) (*bmm.Machine, *http.Response, error) {
+) (*nico.Machine, *http.Response, error) {
 	if m.getMachine != nil {
 		return m.getMachine(ctx, org, machineId)
 	}
@@ -82,7 +82,7 @@ func TestInstanceExists(t *testing.T) {
 	tests := []struct {
 		name       string
 		node       *v1.Node
-		mockClient *mockNvidiaCarbideClient
+		mockClient *mockNicoClient
 		want       bool
 		wantErr    bool
 	}{
@@ -92,10 +92,10 @@ func TestInstanceExists(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
 				Spec:       v1.NodeSpec{ProviderID: pid.String()},
 			},
-			mockClient: &mockNvidiaCarbideClient{
-				getInstance: func(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error) {
+			mockClient: &mockNicoClient{
+				getInstance: func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error) {
 					id := instanceID.String()
-					return &bmm.Instance{
+					return &nico.Instance{
 						Id:   &id,
 						Name: ptr("test-instance"),
 					}, &http.Response{StatusCode: 200}, nil
@@ -110,8 +110,8 @@ func TestInstanceExists(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
 				Spec:       v1.NodeSpec{ProviderID: pid.String()},
 			},
-			mockClient: &mockNvidiaCarbideClient{
-				getInstance: func(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error) {
+			mockClient: &mockNicoClient{
+				getInstance: func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error) {
 					return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
 				},
 			},
@@ -122,8 +122,8 @@ func TestInstanceExists(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cloud := &NvidiaCarbideCloud{
-				nvidiaCarbideClient: tt.mockClient,
+			cloud := &NicoCloud{
+				nicoClient: tt.mockClient,
 				orgName:             "test-org",
 				siteID:              "test-site",
 			}
@@ -149,14 +149,14 @@ func TestInstanceMetadata_InstanceType(t *testing.T) {
 	tests := []struct {
 		name             string
 		instanceTypeID   *string
-		mockInstanceType func(ctx context.Context, org string, id string) (*bmm.InstanceType, *http.Response, error)
+		mockInstanceType func(ctx context.Context, org string, id string) (*nico.InstanceType, *http.Response, error)
 		wantType         string
 	}{
 		{
 			name:           "resolves instance type name",
 			instanceTypeID: &instanceTypeID,
-			mockInstanceType: func(ctx context.Context, org string, id string) (*bmm.InstanceType, *http.Response, error) {
-				return &bmm.InstanceType{
+			mockInstanceType: func(ctx context.Context, org string, id string) (*nico.InstanceType, *http.Response, error) {
+				return &nico.InstanceType{
 					Id:   &instanceTypeID,
 					Name: ptr("dgx-h100"),
 				}, &http.Response{StatusCode: 200}, nil
@@ -166,41 +166,41 @@ func TestInstanceMetadata_InstanceType(t *testing.T) {
 		{
 			name:           "falls back when instance type lookup fails",
 			instanceTypeID: &instanceTypeID,
-			mockInstanceType: func(ctx context.Context, org string, id string) (*bmm.InstanceType, *http.Response, error) {
+			mockInstanceType: func(ctx context.Context, org string, id string) (*nico.InstanceType, *http.Response, error) {
 				return nil, &http.Response{StatusCode: 500}, fmt.Errorf("server error")
 			},
-			wantType: "nvidia-carbide-instance",
+			wantType: "nico-instance",
 		},
 		{
 			name:           "falls back when no instance type ID",
 			instanceTypeID: nil,
-			wantType:       "nvidia-carbide-instance",
+			wantType:       "nico-instance",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			id := instanceID.String()
-			instance := &bmm.Instance{
+			instance := &nico.Instance{
 				Id:             &id,
 				Name:           ptr("test-instance"),
 				SiteId:         &siteID,
 				InstanceTypeId: tt.instanceTypeID,
-				Interfaces:     []bmm.Interface{},
+				Interfaces:     []nico.Interface{},
 			}
 
-			mock := &mockNvidiaCarbideClient{
-				getInstance: func(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error) {
+			mock := &mockNicoClient{
+				getInstance: func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error) {
 					return instance, &http.Response{StatusCode: 200}, nil
 				},
 				getInstanceType: tt.mockInstanceType,
-				getSite: func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error) {
+				getSite: func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error) {
 					return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
 				},
 			}
 
-			cloud := &NvidiaCarbideCloud{
-				nvidiaCarbideClient: mock,
+			cloud := &NicoCloud{
+				nicoClient: mock,
 				orgName:             "test-org",
 				siteID:              siteID,
 			}
@@ -226,17 +226,17 @@ func TestResolveZoneAndRegion(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		mockSite   func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error)
+		mockSite   func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
 		wantZone   string
 		wantRegion string
 	}{
 		{
 			name: "site with full location",
-			mockSite: func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error) {
-				return &bmm.Site{
+			mockSite: func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error) {
+				return &nico.Site{
 					Id:   &siteID,
 					Name: ptr("Santa Clara DC1"),
-					Location: &bmm.SiteLocation{
+					Location: &nico.SiteLocation{
 						Country: ptr("us"),
 						State:   ptr("california"),
 						City:    ptr("santa clara"),
@@ -248,8 +248,8 @@ func TestResolveZoneAndRegion(t *testing.T) {
 		},
 		{
 			name: "site without location falls back to name",
-			mockSite: func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error) {
-				return &bmm.Site{
+			mockSite: func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error) {
+				return &nico.Site{
 					Id:   &siteID,
 					Name: ptr("test-dc"),
 				}, &http.Response{StatusCode: 200}, nil
@@ -259,18 +259,18 @@ func TestResolveZoneAndRegion(t *testing.T) {
 		},
 		{
 			name: "site lookup fails falls back to ID",
-			mockSite: func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error) {
+			mockSite: func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error) {
 				return nil, &http.Response{StatusCode: 500}, fmt.Errorf("server error")
 			},
-			wantZone:   fmt.Sprintf("nvidia-carbide-zone-%s", siteID),
-			wantRegion: fmt.Sprintf("nvidia-carbide-region-%s", siteID),
+			wantZone:   fmt.Sprintf("nico-zone-%s", siteID),
+			wantRegion: fmt.Sprintf("nico-region-%s", siteID),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cloud := &NvidiaCarbideCloud{
-				nvidiaCarbideClient: &mockNvidiaCarbideClient{
+			cloud := &NicoCloud{
+				nicoClient: &mockNicoClient{
 					getSite: tt.mockSite,
 				},
 				orgName: "test-org",
@@ -291,12 +291,12 @@ func TestResolveZoneAndRegion(t *testing.T) {
 func TestExtractNodeAddresses(t *testing.T) {
 	tests := []struct {
 		name       string
-		interfaces []bmm.Interface
+		interfaces []nico.Interface
 		wantIPs    []v1.NodeAddress
 	}{
 		{
 			name: "uses all IPs from non-physical interfaces",
-			interfaces: []bmm.Interface{
+			interfaces: []nico.Interface{
 				{
 					IsPhysical:  ptr(true),
 					IpAddresses: []string{"10.0.0.1"},
@@ -314,7 +314,7 @@ func TestExtractNodeAddresses(t *testing.T) {
 		},
 		{
 			name: "first interface without IsPhysical set",
-			interfaces: []bmm.Interface{
+			interfaces: []nico.Interface{
 				{
 					IpAddresses: []string{"10.0.0.5"},
 				},
@@ -326,14 +326,14 @@ func TestExtractNodeAddresses(t *testing.T) {
 		},
 		{
 			name:       "no interfaces",
-			interfaces: []bmm.Interface{},
+			interfaces: []nico.Interface{},
 			wantIPs: []v1.NodeAddress{
 				{Type: v1.NodeHostName, Address: "test-node"},
 			},
 		},
 		{
 			name: "skips non-physical interface with empty IPs",
-			interfaces: []bmm.Interface{
+			interfaces: []nico.Interface{
 				{
 					IsPhysical:  ptr(true),
 					IpAddresses: []string{"10.0.0.1"},
@@ -354,7 +354,7 @@ func TestExtractNodeAddresses(t *testing.T) {
 		},
 		{
 			name: "multiple non-physical interfaces all contribute IPs",
-			interfaces: []bmm.Interface{
+			interfaces: []nico.Interface{
 				{
 					IsPhysical:  ptr(false),
 					IpAddresses: []string{"192.168.1.10"},
@@ -376,7 +376,7 @@ func TestExtractNodeAddresses(t *testing.T) {
 		},
 		{
 			name: "all physical interfaces skipped",
-			interfaces: []bmm.Interface{
+			interfaces: []nico.Interface{
 				{
 					IsPhysical:  ptr(true),
 					IpAddresses: []string{"10.0.0.1"},
@@ -390,8 +390,8 @@ func TestExtractNodeAddresses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cloud := &NvidiaCarbideCloud{}
-			instance := &bmm.Instance{
+			cloud := &NicoCloud{}
+			instance := &nico.Instance{
 				Interfaces: tt.interfaces,
 			}
 
@@ -430,8 +430,8 @@ func TestParseProviderID_Invalid(t *testing.T) {
 	}{
 		{"empty", "", true},
 		{"invalid format", "invalid-format", true},
-		{"missing parts", "nvidia-carbide://org/site", true},
-		{"invalid uuid", "nvidia-carbide://org/site/not-a-uuid", true},
+		{"missing parts", "nico://org/site", true},
+		{"invalid uuid", "nico://org/site/not-a-uuid", true},
 	}
 
 	for _, tt := range tests {
@@ -448,7 +448,7 @@ func TestMachineHealthLabels(t *testing.T) {
 	tests := []struct {
 		name        string
 		machineID   *string
-		mockMachine func(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error)
+		mockMachine func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
 		wantHealthy string
 		wantNil     bool
 	}{
@@ -460,10 +460,10 @@ func TestMachineHealthLabels(t *testing.T) {
 		{
 			name:      "healthy machine",
 			machineID: ptr("machine-1"),
-			mockMachine: func(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error) {
-				return &bmm.Machine{
-					Health: &bmm.MachineHealth{
-						Alerts: []bmm.MachineHealthProbeAlert{},
+			mockMachine: func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error) {
+				return &nico.Machine{
+					Health: &nico.MachineHealth{
+						Alerts: []nico.MachineHealthProbeAlert{},
 					},
 				}, &http.Response{StatusCode: 200}, nil
 			},
@@ -472,10 +472,10 @@ func TestMachineHealthLabels(t *testing.T) {
 		{
 			name:      "machine with alerts",
 			machineID: ptr("machine-2"),
-			mockMachine: func(ctx context.Context, org string, machineId string) (*bmm.Machine, *http.Response, error) {
-				return &bmm.Machine{
-					Health: &bmm.MachineHealth{
-						Alerts: []bmm.MachineHealthProbeAlert{
+			mockMachine: func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error) {
+				return &nico.Machine{
+					Health: &nico.MachineHealth{
+						Alerts: []nico.MachineHealthProbeAlert{
 							{Id: ptr("alert-1"), Message: ptr("PSU failure")},
 							{Id: ptr("alert-2"), Message: ptr("ECC error")},
 						},
@@ -488,16 +488,16 @@ func TestMachineHealthLabels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cloud := &NvidiaCarbideCloud{
-				nvidiaCarbideClient: &mockNvidiaCarbideClient{
+			cloud := &NicoCloud{
+				nicoClient: &mockNicoClient{
 					getMachine: tt.mockMachine,
 				},
 				orgName: "test-org",
 			}
 
-			instance := &bmm.Instance{}
+			instance := &nico.Instance{}
 			if tt.machineID != nil {
-				instance.MachineId = *bmm.NewNullableString(tt.machineID)
+				instance.MachineId = *nico.NewNullableString(tt.machineID)
 			}
 
 			labels := cloud.machineHealthLabels(context.Background(), instance)
@@ -526,13 +526,13 @@ func TestGetZoneByProviderID(t *testing.T) {
 	instanceID := uuid.New()
 	pid := providerid.NewProviderID("test-org", "test-tenant", siteID, instanceID)
 
-	cloud := &NvidiaCarbideCloud{
-		nvidiaCarbideClient: &mockNvidiaCarbideClient{
-			getSite: func(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error) {
-				return &bmm.Site{
+	cloud := &NicoCloud{
+		nicoClient: &mockNicoClient{
+			getSite: func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error) {
+				return &nico.Site{
 					Id:   &siteID,
 					Name: ptr("DC1"),
-					Location: &bmm.SiteLocation{
+					Location: &nico.SiteLocation{
 						Country: ptr("us"),
 						State:   ptr("ca"),
 					},

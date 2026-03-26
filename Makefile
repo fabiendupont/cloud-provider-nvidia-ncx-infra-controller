@@ -1,6 +1,6 @@
 # Image URL for building/pushing image targets
 VERSION ?= 0.1.0
-IMAGE_TAG_BASE ?= ghcr.io/fabiendupont/cloud-provider-nvidia-carbide
+IMAGE_TAG_BASE ?= ghcr.io/fabiendupont/cloud-provider-nvidia-ncx-infra-controller
 IMG ?= $(IMAGE_TAG_BASE):latest
 BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-bundle:v$(VERSION)
 CATALOG_IMG ?= $(IMAGE_TAG_BASE)-catalog:v$(VERSION)
@@ -41,24 +41,24 @@ vet: ## Run go vet against code.
 test: ## Run tests.
 	go test ./... -coverprofile cover.out
 
-KIND_CLUSTER ?= carbide-ccm-e2e
+KIND_CLUSTER ?= nico-ccm-e2e
 
 .PHONY: test-e2e-live
-test-e2e-live: ## Run e2e tests against live Carbide API.
-	kind get kubeconfig --name $(KIND_CLUSTER) > /tmp/carbide-e2e-kubeconfig
-	KUBECONFIG=/tmp/carbide-e2e-kubeconfig \
+test-e2e-live: ## Run e2e tests against live NICo API.
+	kind get kubeconfig --name $(KIND_CLUSTER) > /tmp/nico-e2e-kubeconfig
+	KUBECONFIG=/tmp/nico-e2e-kubeconfig \
 		go test -tags=e2e ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="live"
 
 ##@ Build
 
 .PHONY: build
 build: fmt vet ## Build cloud controller manager binary.
-	go build -o bin/nvidia-carbide-cloud-controller-manager cmd/nvidia-carbide-cloud-controller-manager/main.go
+	go build -o bin/nico-cloud-controller-manager cmd/nico-cloud-controller-manager/main.go
 
 .PHONY: run
 run: fmt vet ## Run cloud controller manager from your host (requires kubeconfig and cloud config).
-	go run ./cmd/nvidia-carbide-cloud-controller-manager/main.go \
-		--cloud-provider=nvidia-carbide \
+	go run ./cmd/nico-cloud-controller-manager/main.go \
+		--cloud-provider=nico \
 		--cloud-config=./config/cloud-config.yaml \
 		--use-service-account-credentials=false \
 		--kubeconfig=${KUBECONFIG}

@@ -6,7 +6,7 @@
 *.dylib
 bin/
 testbin/
-/nvidia-carbide-cloud-controller-manager
+/nico-cloud-controller-manager
 
 # Test binary, built with `go test -c`
 *.test

@@ -1,11 +1,11 @@
 apiVersion: v2
-name: nvidia-carbide-ccm
-description: NVIDIA Carbide Cloud Controller Manager for Kubernetes
+name: nico-ccm
+description: NICo Cloud Controller Manager for Kubernetes
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
 keywords:
   - nvidia
-  - carbide
+  - nico
   - cloud-controller-manager
   - ccm

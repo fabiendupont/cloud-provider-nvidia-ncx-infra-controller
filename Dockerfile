@@ -19,16 +19,16 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a \
     -ldflags '-extldflags "-static"' \
-    -o nvidia-carbide-cloud-controller-manager \
-    cmd/nvidia-carbide-cloud-controller-manager/main.go
+    -o nico-cloud-controller-manager \
+    cmd/nico-cloud-controller-manager/main.go
 
 # Use distroless as minimal base image
 FROM gcr.io/distroless/static-debian12
 
 WORKDIR /
 
-COPY --from=builder /workspace/nvidia-carbide-cloud-controller-manager .
+COPY --from=builder /workspace/nico-cloud-controller-manager .
 
 USER 65532:65532
 
-ENTRYPOINT ["/nvidia-carbide-cloud-controller-manager"]
+ENTRYPOINT ["/nico-cloud-controller-manager"]

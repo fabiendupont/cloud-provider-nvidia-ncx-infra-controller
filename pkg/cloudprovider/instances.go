@@ -26,15 +26,15 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 
-	bmm "github.com/nvidia/bare-metal-manager-rest/sdk/standard"
+	nico "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 
-	"github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/providerid"
+	"github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/providerid"
 )
 
-const defaultInstanceType = "nvidia-carbide-instance"
+const defaultInstanceType = "nico-instance"
 
 // InstanceExists checks if the instance exists for the given node
-func (c *NvidiaCarbideCloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, error) {
+func (c *NicoCloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, error) {
 	providerID := node.Spec.ProviderID
 	if providerID == "" {
 		return false, fmt.Errorf("node %s has no provider ID", node.Name)
@@ -45,7 +45,7 @@ func (c *NvidiaCarbideCloud) InstanceExists(ctx context.Context, node *v1.Node) 
 		return false, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	_, httpResp, err := c.nvidiaCarbideClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	_, httpResp, err := c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
 	if err != nil {
 		klog.Warningf("Instance %s not found: %v", parsed.InstanceID, err)
 		return false, nil
@@ -61,7 +61,7 @@ func (c *NvidiaCarbideCloud) InstanceExists(ctx context.Context, node *v1.Node) 
 }
 
 // InstanceShutdown checks if the instance is shutdown
-func (c *NvidiaCarbideCloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, error) {
+func (c *NicoCloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, error) {
 	providerID := node.Spec.ProviderID
 	if providerID == "" {
 		return false, fmt.Errorf("node %s has no provider ID", node.Name)
@@ -72,7 +72,7 @@ func (c *NvidiaCarbideCloud) InstanceShutdown(ctx context.Context, node *v1.Node
 		return false, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	instance, httpResp, err := c.nvidiaCarbideClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	instance, httpResp, err := c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
 	if err != nil {
 		return false, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -83,8 +83,8 @@ func (c *NvidiaCarbideCloud) InstanceShutdown(ctx context.Context, node *v1.Node
 
 	if instance.Status != nil {
 		switch *instance.Status {
-		case bmm.INSTANCESTATUS_TERMINATING,
-			bmm.INSTANCESTATUS_ERROR:
+		case nico.INSTANCESTATUS_TERMINATING,
+			nico.INSTANCESTATUS_ERROR:
 			klog.V(2).InfoS("Instance is shut down",
 				"node", node.Name, "instanceID", parsed.InstanceID,
 				"status", *instance.Status)
@@ -105,7 +105,7 @@ func (c *NvidiaCarbideCloud) InstanceShutdown(ctx context.Context, node *v1.Node
 }
 
 // InstanceMetadata returns metadata for the instance
-func (c *NvidiaCarbideCloud) InstanceMetadata(
+func (c *NicoCloud) InstanceMetadata(
 	ctx context.Context, node *v1.Node,
 ) (*cloudprovider.InstanceMetadata, error) {
 	providerID := node.Spec.ProviderID
@@ -118,7 +118,7 @@ func (c *NvidiaCarbideCloud) InstanceMetadata(
 		return nil, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	instance, httpResp, err := c.nvidiaCarbideClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	instance, httpResp, err := c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -155,7 +155,7 @@ func (c *NvidiaCarbideCloud) InstanceMetadata(
 			if additionalLabels == nil {
 				additionalLabels = map[string]string{}
 			}
-			additionalLabels["nvidia-carbide.io/serial-console"] = url
+			additionalLabels["nico.io/serial-console"] = url
 		}
 	}
 
@@ -173,16 +173,16 @@ func (c *NvidiaCarbideCloud) InstanceMetadata(
 	return metadata, nil
 }
 
-// resolveInstanceType looks up the instance type name from the Carbide API.
+// resolveInstanceType looks up the instance type name from the NICo API.
 // Falls back to defaultInstanceType if the lookup fails.
-func (c *NvidiaCarbideCloud) resolveInstanceType(ctx context.Context, instance *bmm.Instance) string {
+func (c *NicoCloud) resolveInstanceType(ctx context.Context, instance *nico.Instance) string {
 	if !instance.HasInstanceTypeId() {
 		klog.Warning("Instance has no instance type ID, using fallback")
 		return defaultInstanceType
 	}
 
 	instanceTypeID := instance.GetInstanceTypeId()
-	it, httpResp, err := c.nvidiaCarbideClient.GetInstanceType(ctx, c.orgName, instanceTypeID)
+	it, httpResp, err := c.nicoClient.GetInstanceType(ctx, c.orgName, instanceTypeID)
 	if err != nil || httpResp.StatusCode != http.StatusOK || it == nil {
 		klog.Warningf("Failed to get instance type %s, using fallback: %v", instanceTypeID, err)
 		return defaultInstanceType
@@ -195,15 +195,15 @@ func (c *NvidiaCarbideCloud) resolveInstanceType(ctx context.Context, instance *
 	return defaultInstanceType
 }
 
-// resolveZoneAndRegion looks up the site from the Carbide API and constructs
+// resolveZoneAndRegion looks up the site from the NICo API and constructs
 // zone ({country}-{state}-{site-name}) and region ({country}-{state}).
 // Falls back to site-ID-based placeholders if the lookup fails.
-func (c *NvidiaCarbideCloud) resolveZoneAndRegion(ctx context.Context, siteID string) (string, string) {
+func (c *NicoCloud) resolveZoneAndRegion(ctx context.Context, siteID string) (string, string) {
 	info, err := c.getCachedSite(ctx, siteID)
 	if err != nil || info == nil {
 		klog.Warningf("Failed to get site %s, using fallback zone/region: %v", siteID, err)
-		return fmt.Sprintf("nvidia-carbide-zone-%s", siteID),
-			fmt.Sprintf("nvidia-carbide-region-%s", siteID)
+		return fmt.Sprintf("nico-zone-%s", siteID),
+			fmt.Sprintf("nico-region-%s", siteID)
 	}
 
 	if info.country != "" && info.state != "" {
@@ -216,17 +216,17 @@ func (c *NvidiaCarbideCloud) resolveZoneAndRegion(ctx context.Context, siteID st
 	if info.name != "" {
 		return info.name, info.name
 	}
-	return fmt.Sprintf("nvidia-carbide-zone-%s", siteID),
-		fmt.Sprintf("nvidia-carbide-region-%s", siteID)
+	return fmt.Sprintf("nico-zone-%s", siteID),
+		fmt.Sprintf("nico-region-%s", siteID)
 }
 
 // getCachedSite returns cached site info or fetches it from the API.
-func (c *NvidiaCarbideCloud) getCachedSite(ctx context.Context, siteID string) (*siteInfo, error) {
+func (c *NicoCloud) getCachedSite(ctx context.Context, siteID string) (*siteInfo, error) {
 	if cached, ok := c.siteCache.Load(siteID); ok {
 		return cached.(*siteInfo), nil
 	}
 
-	site, httpResp, err := c.nvidiaCarbideClient.GetSite(ctx, c.orgName, siteID)
+	site, httpResp, err := c.nicoClient.GetSite(ctx, c.orgName, siteID)
 	if err != nil || httpResp.StatusCode != http.StatusOK || site == nil {
 		return nil, fmt.Errorf("failed to get site %s: %w", siteID, err)
 	}
@@ -267,7 +267,7 @@ type siteInfo struct {
 // Physical interfaces (CIN/InfiniBand) are skipped as they are not Kubernetes-routable.
 // InfiniBand and NVLink interfaces are separate collections on Instance and are not
 // included here — they carry partition GUIDs, not routable IP addresses.
-func (c *NvidiaCarbideCloud) extractNodeAddresses(instance *bmm.Instance, nodeName string) []v1.NodeAddress {
+func (c *NicoCloud) extractNodeAddresses(instance *nico.Instance, nodeName string) []v1.NodeAddress {
 	var addresses []v1.NodeAddress
 
 	for _, iface := range instance.Interfaces {

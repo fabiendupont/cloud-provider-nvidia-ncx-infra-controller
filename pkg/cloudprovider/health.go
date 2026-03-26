@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"time"
 
-	bmm "github.com/nvidia/bare-metal-manager-rest/sdk/standard"
+	nico "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 	"k8s.io/klog/v2"
 )
 
@@ -36,16 +36,16 @@ type machineHealthCacheEntry struct {
 const (
 	// LabelHealthy indicates whether the machine has health alerts.
 	// Set to "true" if healthy, "false" if alerts are present.
-	LabelHealthy = "nvidia-carbide.io/healthy"
+	LabelHealthy = "nico.io/healthy"
 
 	// LabelHealthAlertCount is the number of active health alerts on the machine.
-	LabelHealthAlertCount = "nvidia-carbide.io/health-alert-count"
+	LabelHealthAlertCount = "nico.io/health-alert-count"
 )
 
 // machineHealthLabels returns labels describing machine health status.
 // Returns nil if health data is unavailable. External controllers (e.g. RHWA
 // NodeHealthCheck) can use these labels to take remediation actions.
-func (c *NvidiaCarbideCloud) machineHealthLabels(ctx context.Context, instance *bmm.Instance) map[string]string {
+func (c *NicoCloud) machineHealthLabels(ctx context.Context, instance *nico.Instance) map[string]string {
 	machineID, ok := instance.GetMachineIdOk()
 	if !ok || machineID == nil || *machineID == "" {
 		return nil
@@ -58,7 +58,7 @@ func (c *NvidiaCarbideCloud) machineHealthLabels(ctx context.Context, instance *
 		}
 	}
 
-	machine, httpResp, err := c.nvidiaCarbideClient.GetMachine(ctx, c.orgName, *machineID)
+	machine, httpResp, err := c.nicoClient.GetMachine(ctx, c.orgName, *machineID)
 	if err != nil || httpResp.StatusCode != http.StatusOK || machine == nil {
 		klog.V(4).Infof("Could not fetch machine %s for health check: %v", *machineID, err)
 		return nil
@@ -106,18 +106,18 @@ func (c *NvidiaCarbideCloud) machineHealthLabels(ctx context.Context, instance *
 
 const (
 	// LabelSiteNVLink indicates whether the site supports NVLink partitioning.
-	LabelSiteNVLink = "nvidia-carbide.io/site-nvlink"
+	LabelSiteNVLink = "nico.io/site-nvlink"
 
 	// LabelSiteNSG indicates whether the site supports network security groups.
-	LabelSiteNSG = "nvidia-carbide.io/site-nsg"
+	LabelSiteNSG = "nico.io/site-nsg"
 
 	// LabelSiteRLA indicates whether the site supports rack-level administration.
-	LabelSiteRLA = "nvidia-carbide.io/site-rla"
+	LabelSiteRLA = "nico.io/site-rla"
 )
 
 // siteCapabilityLabels returns labels describing site capabilities.
 // Data is served from the site cache populated by getCachedSite().
-func (c *NvidiaCarbideCloud) siteCapabilityLabels(ctx context.Context, siteID string) map[string]string {
+func (c *NicoCloud) siteCapabilityLabels(ctx context.Context, siteID string) map[string]string {
 	info, err := c.getCachedSite(ctx, siteID)
 	if err != nil || info == nil {
 		klog.V(4).Infof("Could not fetch site %s for capabilities: %v", siteID, err)

@@ -1,33 +1,33 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "nvidia-carbide-ccm.fullname" . }}
+  name: {{ include "nico-ccm.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nvidia-carbide-ccm.labels" . | nindent 4 }}
+    {{- include "nico-ccm.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "nvidia-carbide-ccm.selectorLabels" . | nindent 6 }}
+      {{- include "nico-ccm.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "nvidia-carbide-ccm.selectorLabels" . | nindent 8 }}
+        {{- include "nico-ccm.selectorLabels" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "nvidia-carbide-ccm.fullname" . }}
+      serviceAccountName: {{ include "nico-ccm.fullname" . }}
       hostNetwork: true
       containers:
         - name: cloud-controller-manager
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
-            - /nvidia-carbide-cloud-controller-manager
-            - --cloud-provider=nvidia-carbide
+            - /nico-cloud-controller-manager
+            - --cloud-provider=nico
             - --cloud-config=/etc/kubernetes/cloud-config
             - --use-service-account-credentials=true
             - --leader-elect=true
-            - --leader-elect-resource-name={{ include "nvidia-carbide-ccm.fullname" . }}
+            - --leader-elect-resource-name={{ include "nico-ccm.fullname" . }}
             - --v={{ .Values.logLevel }}
           volumeMounts:
             - name: cloud-config
@@ -46,7 +46,7 @@ spec:
       volumes:
         - name: cloud-config
           secret:
-            secretName: {{ include "nvidia-carbide-ccm.secretName" . }}
+            secretName: {{ include "nico-ccm.secretName" . }}
             items:
               - key: cloud-config
                 path: cloud-config

@@ -8,5 +8,5 @@ roleRef:
   name: system:cloud-controller-manager
 subjects:
   - kind: ServiceAccount
-    name: nvidia-carbide-cloud-controller-manager
+    name: nico-cloud-controller-manager
     namespace: kube-system

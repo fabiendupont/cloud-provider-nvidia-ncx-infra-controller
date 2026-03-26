@@ -1,10 +1,10 @@
-# NVIDIA Carbide Cloud Provider Configuration
-# This file is used by the cloud-controller-manager to connect to NVIDIA Carbide API
+# NICo Cloud Provider Configuration
+# This file is used by the cloud-controller-manager to connect to NICo API
 
-# NVIDIA Carbide API endpoint
-endpoint: "https://api.carbide.nvidia.com"
+# NICo API endpoint
+endpoint: "https://api.nico.nvidia.com"
 
-# Organization name in NVIDIA Carbide
+# Organization name in NICo
 orgName: "your-org-name"
 
 # API authentication token

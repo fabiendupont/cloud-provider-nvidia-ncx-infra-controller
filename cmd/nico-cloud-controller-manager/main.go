@@ -33,8 +33,8 @@ import (
 	_ "k8s.io/component-base/metrics/prometheus/version"
 	"k8s.io/klog/v2"
 
-	// Import NVIDIA Carbide cloud provider to register it
-	_ "github.com/fabiendupont/cloud-provider-nvidia-carbide/pkg/cloudprovider"
+	// Import NICo cloud provider to register it
+	_ "github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/cloudprovider"
 )
 
 func main() {
@@ -68,7 +68,7 @@ func main() {
 		stopCh,
 	)
 	code := cli.Run(command)
-	klog.InfoS("NVIDIA Carbide CCM exiting", "code", code)
+	klog.InfoS("NICo CCM exiting", "code", code)
 	os.Exit(code)
 }
 
