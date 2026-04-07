@@ -63,6 +63,9 @@ func ParseProviderID(providerIDStr string) (*ProviderID, error) {
 	switch len(parts) {
 	case 3:
 		// Legacy format: nico://org/site/instance-id
+		if parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("invalid provider ID: org and site segments must not be empty: %s", providerIDStr)
+		}
 		instanceID, err := uuid.Parse(parts[2])
 		if err != nil {
 			return nil, fmt.Errorf("invalid instance ID %q: %w", parts[2], err)
@@ -75,6 +78,9 @@ func ParseProviderID(providerIDStr string) (*ProviderID, error) {
 		}, nil
 	case 4:
 		// New format: nico://org/tenant/site/instance-id
+		if parts[0] == "" || parts[1] == "" || parts[2] == "" {
+			return nil, fmt.Errorf("invalid provider ID: org, tenant, and site segments must not be empty: %s", providerIDStr)
+		}
 		instanceID, err := uuid.Parse(parts[3])
 		if err != nil {
 			return nil, fmt.Errorf("invalid instance ID %q: %w", parts[3], err)

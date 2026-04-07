@@ -93,6 +93,7 @@ kubectl get nodes -o custom-columns=NAME:.metadata.name,PROVIDER-ID:.spec.provid
 | `token` | string | Yes | API authentication token |
 | `siteId` | string | Yes | Site UUID where cluster is deployed |
 | `tenantId` | string | Yes | Tenant UUID |
+| `apiName` | string | No | API path segment override (default: `carbide`) |
 
 ### Environment Variable Overrides
 
@@ -105,6 +106,7 @@ Environment variables take precedence over the config file:
 | `NICO_TOKEN` | `token` |
 | `NICO_SITE_ID` | `siteId` |
 | `NICO_TENANT_ID` | `tenantId` |
+| `NICO_API_NAME` | `apiName` |
 
 ## Node Lifecycle
 

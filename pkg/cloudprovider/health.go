@@ -40,11 +40,24 @@ const (
 
 	// LabelHealthAlertCount is the number of active health alerts on the machine.
 	LabelHealthAlertCount = "nico.io/health-alert-count"
+
+	// LabelFaultComponent is the infrastructure component affected by the fault.
+	LabelFaultComponent = "nico.io/fault-component"
+
+	// LabelFaultClassification is the source-specific fault type.
+	LabelFaultClassification = "nico.io/fault-classification"
+
+	// LabelFaultState is the lifecycle state of the fault.
+	LabelFaultState = "nico.io/fault-state"
 )
 
 // machineHealthLabels returns labels describing machine health status.
 // Returns nil if health data is unavailable. External controllers (e.g. RHWA
 // NodeHealthCheck) can use these labels to take remediation actions.
+//
+// If the fault-management capability is available (NEP-0007), labels are
+// derived from the structured health events API. Otherwise, falls back to
+// parsing the machine.health JSONB field.
 func (c *NicoCloud) machineHealthLabels(ctx context.Context, instance *nico.Instance) map[string]string {
 	machineID, ok := instance.GetMachineIdOk()
 	if !ok || machineID == nil || *machineID == "" {
@@ -58,24 +71,11 @@ func (c *NicoCloud) machineHealthLabels(ctx context.Context, instance *nico.Inst
 		}
 	}
 
-	machine, httpResp, err := c.nicoClient.GetMachine(ctx, c.orgName, *machineID)
-	if err != nil || httpResp.StatusCode != http.StatusOK || machine == nil {
-		klog.V(4).Infof("Could not fetch machine %s for health check: %v", *machineID, err)
-		return nil
-	}
-
 	var labels map[string]string
-	if machine.Health == nil {
-		labels = nil
-	} else if len(machine.Health.Alerts) == 0 {
-		labels = map[string]string{
-			LabelHealthy: "true",
-		}
+	if c.hasFaultManagement(ctx) {
+		labels = c.healthLabelsFromFaultAPI(ctx, *machineID)
 	} else {
-		labels = map[string]string{
-			LabelHealthy:          "false",
-			LabelHealthAlertCount: fmt.Sprintf("%d", len(machine.Health.Alerts)),
-		}
+		labels = c.healthLabelsFromJSONB(ctx, *machineID)
 	}
 
 	// Detect health status transitions for logging
@@ -102,6 +102,98 @@ func (c *NicoCloud) machineHealthLabels(ctx context.Context, instance *nico.Inst
 	})
 
 	return labels
+}
+
+// hasFaultManagement checks whether the NICo API supports the fault-management
+// feature (NEP-0007). The result is cached for the lifetime of the CCM process.
+func (c *NicoCloud) hasFaultManagement(ctx context.Context) bool {
+	if c.faultManagementAvailable != nil {
+		return *c.faultManagementAvailable
+	}
+
+	caps, _, err := c.nicoClient.GetCapabilities(ctx, c.orgName)
+	if err != nil {
+		klog.V(4).Infof("Capabilities endpoint unavailable, using JSONB fallback: %v", err)
+		result := false
+		c.faultManagementAvailable = &result
+		return false
+	}
+
+	result := false
+	for _, f := range caps.Features {
+		if f == "fault-management" {
+			result = true
+			break
+		}
+	}
+	c.faultManagementAvailable = &result
+	if result {
+		klog.V(2).Info("Fault management capability detected, using structured health events API")
+	} else {
+		klog.V(2).Info("Fault management capability not available, using JSONB fallback")
+	}
+	return result
+}
+
+// healthLabelsFromFaultAPI derives health labels from the structured health
+// events API (NEP-0007). Returns labels with fault component, classification,
+// and state from the first open fault event.
+func (c *NicoCloud) healthLabelsFromFaultAPI(ctx context.Context, machineID string) map[string]string {
+	events, _, err := c.nicoClient.GetHealthEvents(ctx, c.orgName, machineID)
+	if err != nil {
+		klog.V(4).Infof("Failed to fetch health events for machine %s: %v", machineID, err)
+		return nil
+	}
+
+	if len(events) == 0 {
+		return map[string]string{
+			LabelHealthy: "true",
+		}
+	}
+
+	labels := map[string]string{
+		LabelHealthy:          "false",
+		LabelHealthAlertCount: fmt.Sprintf("%d", len(events)),
+	}
+
+	// Use the first fault event for component-level labels
+	first := events[0]
+	if first.Component != "" {
+		labels[LabelFaultComponent] = first.Component
+	}
+	if first.Classification != "" {
+		labels[LabelFaultClassification] = first.Classification
+	}
+	if first.State != "" {
+		labels[LabelFaultState] = first.State
+	}
+
+	return labels
+}
+
+// healthLabelsFromJSONB derives health labels from the machine.health JSONB
+// field. This is the legacy path used when fault-management is not available.
+func (c *NicoCloud) healthLabelsFromJSONB(ctx context.Context, machineID string) map[string]string {
+	machine, httpResp, err := c.nicoClient.GetMachine(ctx, c.orgName, machineID)
+	if err != nil || httpResp.StatusCode != http.StatusOK || machine == nil {
+		klog.V(4).Infof("Could not fetch machine %s for health check: %v", machineID, err)
+		return nil
+	}
+
+	if machine.Health == nil {
+		return nil
+	}
+
+	if len(machine.Health.Alerts) == 0 {
+		return map[string]string{
+			LabelHealthy: "true",
+		}
+	}
+
+	return map[string]string{
+		LabelHealthy:          "false",
+		LabelHealthAlertCount: fmt.Sprintf("%d", len(machine.Health.Alerts)),
+	}
 }
 
 const (

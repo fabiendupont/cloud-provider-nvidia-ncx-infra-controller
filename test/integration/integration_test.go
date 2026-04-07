@@ -83,7 +83,9 @@ type mockNicoClient struct {
 	getInstanceTypeFunc func(
 		ctx context.Context, org string, instanceTypeId string,
 	) (*nico.InstanceType, *http.Response, error)
-	getMachineFunc func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
+	getMachineFunc      func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
+	getCapabilitiesFunc func(ctx context.Context, org string) (*nicoprovider.CapabilitiesResponse, *http.Response, error)
+	getHealthEventsFunc func(ctx context.Context, org string, machineID string) ([]nicoprovider.FaultEvent, *http.Response, error)
 }
 
 func (m *mockNicoClient) GetInstance(
@@ -132,6 +134,24 @@ func (m *mockNicoClient) GetMachine(
 ) (*nico.Machine, *http.Response, error) {
 	if m.getMachineFunc != nil {
 		return m.getMachineFunc(ctx, org, machineId)
+	}
+	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
+}
+
+func (m *mockNicoClient) GetCapabilities(
+	ctx context.Context, org string,
+) (*nicoprovider.CapabilitiesResponse, *http.Response, error) {
+	if m.getCapabilitiesFunc != nil {
+		return m.getCapabilitiesFunc(ctx, org)
+	}
+	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
+}
+
+func (m *mockNicoClient) GetHealthEvents(
+	ctx context.Context, org string, machineID string,
+) ([]nicoprovider.FaultEvent, *http.Response, error) {
+	if m.getHealthEventsFunc != nil {
+		return m.getHealthEventsFunc(ctx, org, machineID)
 	}
 	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
 }

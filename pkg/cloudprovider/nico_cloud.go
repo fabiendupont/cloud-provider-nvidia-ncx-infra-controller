@@ -18,6 +18,7 @@ package cloudprovider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,6 +42,7 @@ const (
 	EnvToken    = "NICO_TOKEN"
 	EnvSiteID   = "NICO_SITE_ID"
 	EnvTenantID = "NICO_TENANT_ID"
+	EnvAPIName  = "NICO_API_NAME"
 )
 
 // NicoClientInterface defines the methods we need from the NICo REST client
@@ -49,6 +51,26 @@ type NicoClientInterface interface {
 	GetSite(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
 	GetInstanceType(ctx context.Context, org string, instanceTypeId string) (*nico.InstanceType, *http.Response, error)
 	GetMachine(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
+	GetCapabilities(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error)
+	GetHealthEvents(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error)
+}
+
+// CapabilitiesResponse represents the response from the capabilities endpoint.
+type CapabilitiesResponse struct {
+	Features []string `json:"features"`
+}
+
+// FaultEvent represents a structured fault event from the health events API.
+type FaultEvent struct {
+	ID             string  `json:"id"`
+	MachineID      string  `json:"machine_id"`
+	Source         string  `json:"source"`
+	Severity       string  `json:"severity"`
+	Component      string  `json:"component"`
+	Classification string  `json:"classification"`
+	Message        string  `json:"message"`
+	State          string  `json:"state"`
+	DetectedAt     string  `json:"detected_at"`
 }
 
 // nicoAPIClient wraps the SDK APIClient and injects auth context
@@ -85,6 +107,67 @@ func (c *nicoAPIClient) GetMachine(
 	return c.client.MachineAPI.GetMachine(c.authCtx(ctx), org, machineId).Execute()
 }
 
+func (c *nicoAPIClient) GetCapabilities(
+	ctx context.Context, org string,
+) (*CapabilitiesResponse, *http.Response, error) {
+	baseURL := c.client.GetConfig().Servers[0].URL
+	url := fmt.Sprintf("%s/v2/org/%s/carbide/capabilities", baseURL, org)
+
+	req, err := http.NewRequestWithContext(c.authCtx(ctx), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create capabilities request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.client.GetConfig().HTTPClient.Do(req)
+	if err != nil {
+		return nil, resp, fmt.Errorf("capabilities request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp, fmt.Errorf("capabilities endpoint returned status %d", resp.StatusCode)
+	}
+
+	var caps CapabilitiesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&caps); err != nil {
+		return nil, resp, fmt.Errorf("failed to decode capabilities response: %w", err)
+	}
+	return &caps, resp, nil
+}
+
+func (c *nicoAPIClient) GetHealthEvents(
+	ctx context.Context, org, machineID string,
+) ([]FaultEvent, *http.Response, error) {
+	baseURL := c.client.GetConfig().Servers[0].URL
+	url := fmt.Sprintf("%s/v2/org/%s/carbide/health/events?machine_id=%s&state=open",
+		baseURL, org, machineID)
+
+	req, err := http.NewRequestWithContext(c.authCtx(ctx), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create health events request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.client.GetConfig().HTTPClient.Do(req)
+	if err != nil {
+		return nil, resp, fmt.Errorf("health events request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp, fmt.Errorf("health events endpoint returned status %d", resp.StatusCode)
+	}
+
+	var events []FaultEvent
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		return nil, resp, fmt.Errorf("failed to decode health events response: %w", err)
+	}
+	return events, resp, nil
+}
+
 // NicoCloud implements the Kubernetes cloud provider interface for NICo
 type NicoCloud struct {
 	nicoClient NicoClientInterface
@@ -95,6 +178,9 @@ type NicoCloud struct {
 	// sites rarely change; restarting the CCM clears the cache.
 	siteCache          sync.Map
 	machineHealthCache sync.Map // map[machineID]*machineHealthCacheEntry
+	// faultManagementAvailable caches whether the fault-management feature
+	// is available. nil = not yet checked, non-nil = cached result.
+	faultManagementAvailable *bool
 }
 
 func init() {
@@ -117,7 +203,12 @@ func NewNicoCloud(config io.Reader) (cloudprovider.Interface, error) {
 	}
 
 	// Create NICo API client
-	sdkCfg := nico.NewConfiguration()
+	var sdkCfg *nico.Configuration
+	if cfg.APIName != "" {
+		sdkCfg = nico.NewConfigurationWithAPIName(cfg.APIName)
+	} else {
+		sdkCfg = nico.NewConfiguration()
+	}
 	sdkCfg.Servers = nico.ServerConfigurations{
 		{URL: cfg.Endpoint},
 	}
@@ -213,6 +304,10 @@ type Config struct {
 
 	// TenantID is the NICo tenant UUID
 	TenantID string `yaml:"tenantId"`
+
+	// APIName overrides the API path segment after /org/{org}/.
+	// Leave empty to use the default "carbide" path.
+	APIName string `yaml:"apiName"`
 }
 
 // Validate checks if the configuration is valid
@@ -274,6 +369,10 @@ func parseConfig(config io.Reader) (*Config, error) {
 	if tenantID := os.Getenv(EnvTenantID); tenantID != "" {
 		cfg.TenantID = tenantID
 		klog.V(4).Infof("Using tenantID from environment: %s", tenantID)
+	}
+	if apiName := os.Getenv(EnvAPIName); apiName != "" {
+		cfg.APIName = apiName
+		klog.V(4).Infof("Using apiName from environment: %s", apiName)
 	}
 
 	return cfg, nil

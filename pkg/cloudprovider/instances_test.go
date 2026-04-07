@@ -33,10 +33,12 @@ import (
 
 // mockNicoClient is a mock for testing
 type mockNicoClient struct {
-	getInstance     func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error)
-	getSite         func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
-	getInstanceType func(ctx context.Context, org string, instanceTypeId string) (*nico.InstanceType, *http.Response, error)
-	getMachine      func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
+	getInstance      func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error)
+	getSite          func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
+	getInstanceType  func(ctx context.Context, org string, instanceTypeId string) (*nico.InstanceType, *http.Response, error)
+	getMachine       func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
+	getCapabilities  func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error)
+	getHealthEvents  func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error)
 }
 
 func (m *mockNicoClient) GetInstance(
@@ -71,6 +73,24 @@ func (m *mockNicoClient) GetMachine(
 ) (*nico.Machine, *http.Response, error) {
 	if m.getMachine != nil {
 		return m.getMachine(ctx, org, machineId)
+	}
+	return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
+}
+
+func (m *mockNicoClient) GetCapabilities(
+	ctx context.Context, org string,
+) (*CapabilitiesResponse, *http.Response, error) {
+	if m.getCapabilities != nil {
+		return m.getCapabilities(ctx, org)
+	}
+	return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
+}
+
+func (m *mockNicoClient) GetHealthEvents(
+	ctx context.Context, org string, machineID string,
+) ([]FaultEvent, *http.Response, error) {
+	if m.getHealthEvents != nil {
+		return m.getHealthEvents(ctx, org, machineID)
 	}
 	return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
 }
@@ -444,7 +464,10 @@ func TestParseProviderID_Invalid(t *testing.T) {
 	}
 }
 
-func TestMachineHealthLabels(t *testing.T) {
+func TestMachineHealthLabels_JSONBFallback(t *testing.T) {
+	// When fault-management is not available, labels come from JSONB
+	noFaultMgmt := false
+
 	tests := []struct {
 		name        string
 		machineID   *string
@@ -492,7 +515,8 @@ func TestMachineHealthLabels(t *testing.T) {
 				nicoClient: &mockNicoClient{
 					getMachine: tt.mockMachine,
 				},
-				orgName: "test-org",
+				orgName:                  "test-org",
+				faultManagementAvailable: &noFaultMgmt,
 			}
 
 			instance := &nico.Instance{}
@@ -516,6 +540,195 @@ func TestMachineHealthLabels(t *testing.T) {
 				if labels[LabelHealthAlertCount] != "2" {
 					t.Errorf("alert count = %q, want %q", labels[LabelHealthAlertCount], "2")
 				}
+			}
+		})
+	}
+}
+
+func TestMachineHealthLabels_FaultAPI(t *testing.T) {
+	hasFaultMgmt := true
+
+	tests := []struct {
+		name            string
+		machineID       *string
+		mockEvents      func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error)
+		wantHealthy     string
+		wantComponent   string
+		wantClassify    string
+		wantState       string
+		wantAlertCount  string
+		wantNil         bool
+	}{
+		{
+			name:      "no machine ID",
+			machineID: nil,
+			wantNil:   true,
+		},
+		{
+			name:      "no open faults",
+			machineID: ptr("machine-1"),
+			mockEvents: func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error) {
+				return []FaultEvent{}, &http.Response{StatusCode: 200}, nil
+			},
+			wantHealthy: "true",
+		},
+		{
+			name:      "single GPU fault",
+			machineID: ptr("machine-2"),
+			mockEvents: func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error) {
+				return []FaultEvent{
+					{
+						ID:             "fault-1",
+						MachineID:      "machine-2",
+						Source:         "dcgm",
+						Severity:       "critical",
+						Component:      "gpu",
+						Classification: "gpu-xid-48",
+						Message:        "Double-bit ECC error",
+						State:          "remediating",
+					},
+				}, &http.Response{StatusCode: 200}, nil
+			},
+			wantHealthy:    "false",
+			wantAlertCount: "1",
+			wantComponent:  "gpu",
+			wantClassify:   "gpu-xid-48",
+			wantState:      "remediating",
+		},
+		{
+			name:      "multiple faults uses first",
+			machineID: ptr("machine-3"),
+			mockEvents: func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error) {
+				return []FaultEvent{
+					{
+						Component:      "power",
+						Classification: "power-psu-fault",
+						State:          "open",
+					},
+					{
+						Component:      "gpu",
+						Classification: "gpu-xid-48",
+						State:          "remediating",
+					},
+				}, &http.Response{StatusCode: 200}, nil
+			},
+			wantHealthy:    "false",
+			wantAlertCount: "2",
+			wantComponent:  "power",
+			wantClassify:   "power-psu-fault",
+			wantState:      "open",
+		},
+		{
+			name:      "API error returns nil",
+			machineID: ptr("machine-4"),
+			mockEvents: func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error) {
+				return nil, &http.Response{StatusCode: 500}, fmt.Errorf("server error")
+			},
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := &NicoCloud{
+				nicoClient: &mockNicoClient{
+					getHealthEvents: tt.mockEvents,
+				},
+				orgName:                  "test-org",
+				faultManagementAvailable: &hasFaultMgmt,
+			}
+
+			instance := &nico.Instance{}
+			if tt.machineID != nil {
+				instance.MachineId = *nico.NewNullableString(tt.machineID)
+			}
+
+			labels := cloud.machineHealthLabels(context.Background(), instance)
+			if tt.wantNil {
+				if labels != nil {
+					t.Errorf("expected nil labels, got %v", labels)
+				}
+				return
+			}
+
+			if labels[LabelHealthy] != tt.wantHealthy {
+				t.Errorf("healthy = %q, want %q", labels[LabelHealthy], tt.wantHealthy)
+			}
+
+			if tt.wantAlertCount != "" {
+				if labels[LabelHealthAlertCount] != tt.wantAlertCount {
+					t.Errorf("alert count = %q, want %q", labels[LabelHealthAlertCount], tt.wantAlertCount)
+				}
+			}
+
+			if tt.wantComponent != "" {
+				if labels[LabelFaultComponent] != tt.wantComponent {
+					t.Errorf("fault component = %q, want %q", labels[LabelFaultComponent], tt.wantComponent)
+				}
+			}
+			if tt.wantClassify != "" {
+				if labels[LabelFaultClassification] != tt.wantClassify {
+					t.Errorf("fault classification = %q, want %q", labels[LabelFaultClassification], tt.wantClassify)
+				}
+			}
+			if tt.wantState != "" {
+				if labels[LabelFaultState] != tt.wantState {
+					t.Errorf("fault state = %q, want %q", labels[LabelFaultState], tt.wantState)
+				}
+			}
+		})
+	}
+}
+
+func TestHasFaultManagement(t *testing.T) {
+	tests := []struct {
+		name     string
+		mockCaps func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error)
+		want     bool
+	}{
+		{
+			name: "feature present",
+			mockCaps: func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error) {
+				return &CapabilitiesResponse{Features: []string{"health", "fault-management"}},
+					&http.Response{StatusCode: 200}, nil
+			},
+			want: true,
+		},
+		{
+			name: "feature absent",
+			mockCaps: func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error) {
+				return &CapabilitiesResponse{Features: []string{"health"}},
+					&http.Response{StatusCode: 200}, nil
+			},
+			want: false,
+		},
+		{
+			name: "endpoint unavailable",
+			mockCaps: func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error) {
+				return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := &NicoCloud{
+				nicoClient: &mockNicoClient{
+					getCapabilities: tt.mockCaps,
+				},
+				orgName: "test-org",
+			}
+
+			got := cloud.hasFaultManagement(context.Background())
+			if got != tt.want {
+				t.Errorf("hasFaultManagement() = %v, want %v", got, tt.want)
+			}
+
+			// Verify result is cached
+			got2 := cloud.hasFaultManagement(context.Background())
+			if got2 != tt.want {
+				t.Errorf("cached hasFaultManagement() = %v, want %v", got2, tt.want)
 			}
 		})
 	}

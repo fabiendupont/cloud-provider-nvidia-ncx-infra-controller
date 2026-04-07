@@ -3,7 +3,7 @@ module github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller
 go 1.25.4
 
 require (
-	github.com/NVIDIA/ncx-infra-controller-rest v1.1.0
+	github.com/NVIDIA/ncx-infra-controller-rest v1.2.0
 	github.com/google/uuid v1.6.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
