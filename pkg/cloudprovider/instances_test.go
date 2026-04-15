@@ -32,13 +32,18 @@ import (
 )
 
 // mockNicoClient is a mock for testing
-type mockNicoClient struct {
-	getInstance      func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error)
-	getSite          func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
-	getInstanceType  func(ctx context.Context, org string, instanceTypeId string) (*nico.InstanceType, *http.Response, error)
-	getMachine       func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
-	getCapabilities  func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error)
-	getHealthEvents  func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error)
+type mockNicoClient struct { //nolint:dupl // mirrors NicoClientInterface
+	getInstance     func(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error)
+	getSite         func(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
+	getInstanceType func(
+		ctx context.Context, org string, instanceTypeId string,
+	) (*nico.InstanceType, *http.Response, error)
+	getMachine        func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
+	getCapabilities   func(ctx context.Context, org string) (*nico.CapabilitiesResponse, *http.Response, error)
+	getHealthEvents   func(ctx context.Context, org string, machineID string) ([]nico.FaultEvent, *http.Response, error)
+	ingestHealthEvent func(
+		ctx context.Context, org string, event nico.FaultIngestionRequest,
+	) (*nico.FaultEvent, *http.Response, error)
 }
 
 func (m *mockNicoClient) GetInstance(
@@ -79,7 +84,7 @@ func (m *mockNicoClient) GetMachine(
 
 func (m *mockNicoClient) GetCapabilities(
 	ctx context.Context, org string,
-) (*CapabilitiesResponse, *http.Response, error) {
+) (*nico.CapabilitiesResponse, *http.Response, error) {
 	if m.getCapabilities != nil {
 		return m.getCapabilities(ctx, org)
 	}
@@ -88,11 +93,20 @@ func (m *mockNicoClient) GetCapabilities(
 
 func (m *mockNicoClient) GetHealthEvents(
 	ctx context.Context, org string, machineID string,
-) ([]FaultEvent, *http.Response, error) {
+) ([]nico.FaultEvent, *http.Response, error) {
 	if m.getHealthEvents != nil {
 		return m.getHealthEvents(ctx, org, machineID)
 	}
 	return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
+}
+
+func (m *mockNicoClient) IngestHealthEvent(
+	ctx context.Context, org string, event nico.FaultIngestionRequest,
+) (*nico.FaultEvent, *http.Response, error) {
+	if m.ingestHealthEvent != nil {
+		return m.ingestHealthEvent(ctx, org, event)
+	}
+	return nil, &http.Response{StatusCode: 202}, nil
 }
 
 func TestInstanceExists(t *testing.T) {
@@ -144,8 +158,8 @@ func TestInstanceExists(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cloud := &NicoCloud{
 				nicoClient: tt.mockClient,
-				orgName:             "test-org",
-				siteID:              "test-site",
+				orgName:    "test-org",
+				siteID:     "test-site",
 			}
 
 			got, err := cloud.InstanceExists(context.Background(), tt.node)
@@ -221,8 +235,8 @@ func TestInstanceMetadata_InstanceType(t *testing.T) {
 
 			cloud := &NicoCloud{
 				nicoClient: mock,
-				orgName:             "test-org",
-				siteID:              siteID,
+				orgName:    "test-org",
+				siteID:     siteID,
 			}
 
 			node := &v1.Node{
@@ -549,15 +563,15 @@ func TestMachineHealthLabels_FaultAPI(t *testing.T) {
 	hasFaultMgmt := true
 
 	tests := []struct {
-		name            string
-		machineID       *string
-		mockEvents      func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error)
-		wantHealthy     string
-		wantComponent   string
-		wantClassify    string
-		wantState       string
-		wantAlertCount  string
-		wantNil         bool
+		name           string
+		machineID      *string
+		mockEvents     func(ctx context.Context, org string, machineID string) ([]nico.FaultEvent, *http.Response, error)
+		wantHealthy    string
+		wantComponent  string
+		wantClassify   string
+		wantState      string
+		wantAlertCount string
+		wantNil        bool
 	}{
 		{
 			name:      "no machine ID",
@@ -567,25 +581,25 @@ func TestMachineHealthLabels_FaultAPI(t *testing.T) {
 		{
 			name:      "no open faults",
 			machineID: ptr("machine-1"),
-			mockEvents: func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error) {
-				return []FaultEvent{}, &http.Response{StatusCode: 200}, nil
+			mockEvents: func(ctx context.Context, org string, machineID string) ([]nico.FaultEvent, *http.Response, error) {
+				return []nico.FaultEvent{}, &http.Response{StatusCode: 200}, nil
 			},
 			wantHealthy: "true",
 		},
 		{
 			name:      "single GPU fault",
 			machineID: ptr("machine-2"),
-			mockEvents: func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error) {
-				return []FaultEvent{
+			mockEvents: func(ctx context.Context, org string, machineID string) ([]nico.FaultEvent, *http.Response, error) {
+				return []nico.FaultEvent{
 					{
-						ID:             "fault-1",
-						MachineID:      "machine-2",
-						Source:         "dcgm",
-						Severity:       "critical",
-						Component:      "gpu",
-						Classification: "gpu-xid-48",
-						Message:        "Double-bit ECC error",
-						State:          "remediating",
+						Id:             ptr("fault-1"),
+						MachineId:      ptr("machine-2"),
+						Source:         ptr("dcgm"),
+						Severity:       ptr("critical"),
+						Component:      ptr("gpu"),
+						Classification: ptr("gpu-xid-48"),
+						Message:        ptr("Double-bit ECC error"),
+						State:          ptr("remediating"),
 					},
 				}, &http.Response{StatusCode: 200}, nil
 			},
@@ -598,17 +612,17 @@ func TestMachineHealthLabels_FaultAPI(t *testing.T) {
 		{
 			name:      "multiple faults uses first",
 			machineID: ptr("machine-3"),
-			mockEvents: func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error) {
-				return []FaultEvent{
+			mockEvents: func(ctx context.Context, org string, machineID string) ([]nico.FaultEvent, *http.Response, error) {
+				return []nico.FaultEvent{
 					{
-						Component:      "power",
-						Classification: "power-psu-fault",
-						State:          "open",
+						Component:      ptr("power"),
+						Classification: ptr("power-psu-fault"),
+						State:          ptr("open"),
 					},
 					{
-						Component:      "gpu",
-						Classification: "gpu-xid-48",
-						State:          "remediating",
+						Component:      ptr("gpu"),
+						Classification: ptr("gpu-xid-48"),
+						State:          ptr("remediating"),
 					},
 				}, &http.Response{StatusCode: 200}, nil
 			},
@@ -621,7 +635,7 @@ func TestMachineHealthLabels_FaultAPI(t *testing.T) {
 		{
 			name:      "API error returns nil",
 			machineID: ptr("machine-4"),
-			mockEvents: func(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error) {
+			mockEvents: func(ctx context.Context, org string, machineID string) ([]nico.FaultEvent, *http.Response, error) {
 				return nil, &http.Response{StatusCode: 500}, fmt.Errorf("server error")
 			},
 			wantNil: true,
@@ -683,28 +697,31 @@ func TestMachineHealthLabels_FaultAPI(t *testing.T) {
 func TestHasFaultManagement(t *testing.T) {
 	tests := []struct {
 		name     string
-		mockCaps func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error)
+		mockCaps func(ctx context.Context, org string) (*nico.CapabilitiesResponse, *http.Response, error)
 		want     bool
 	}{
 		{
 			name: "feature present",
-			mockCaps: func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error) {
-				return &CapabilitiesResponse{Features: []string{"health", "fault-management"}},
-					&http.Response{StatusCode: 200}, nil
+			mockCaps: func(ctx context.Context, org string) (*nico.CapabilitiesResponse, *http.Response, error) {
+				return &nico.CapabilitiesResponse{Features: map[string]nico.FeatureStatus{
+					"health":           {},
+					"fault-management": {},
+				}}, &http.Response{StatusCode: 200}, nil
 			},
 			want: true,
 		},
 		{
 			name: "feature absent",
-			mockCaps: func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error) {
-				return &CapabilitiesResponse{Features: []string{"health"}},
-					&http.Response{StatusCode: 200}, nil
+			mockCaps: func(ctx context.Context, org string) (*nico.CapabilitiesResponse, *http.Response, error) {
+				return &nico.CapabilitiesResponse{Features: map[string]nico.FeatureStatus{
+					"health": {},
+				}}, &http.Response{StatusCode: 200}, nil
 			},
 			want: false,
 		},
 		{
 			name: "endpoint unavailable",
-			mockCaps: func(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error) {
+			mockCaps: func(ctx context.Context, org string) (*nico.CapabilitiesResponse, *http.Response, error) {
 				return nil, &http.Response{StatusCode: 404}, fmt.Errorf("not found")
 			},
 			want: false,

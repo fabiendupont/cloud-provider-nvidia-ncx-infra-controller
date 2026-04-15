@@ -32,8 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 
-	nicoprovider "github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/cloudprovider"
 	nico "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicoprovider "github.com/fabiendupont/cloud-provider-nvidia-ncx-infra-controller/pkg/cloudprovider"
 )
 
 var (
@@ -84,8 +84,13 @@ type mockNicoClient struct {
 		ctx context.Context, org string, instanceTypeId string,
 	) (*nico.InstanceType, *http.Response, error)
 	getMachineFunc      func(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
-	getCapabilitiesFunc func(ctx context.Context, org string) (*nicoprovider.CapabilitiesResponse, *http.Response, error)
-	getHealthEventsFunc func(ctx context.Context, org string, machineID string) ([]nicoprovider.FaultEvent, *http.Response, error)
+	getCapabilitiesFunc func(ctx context.Context, org string) (*nico.CapabilitiesResponse, *http.Response, error)
+	getHealthEventsFunc func(
+		ctx context.Context, org string, machineID string,
+	) ([]nico.FaultEvent, *http.Response, error)
+	ingestHealthEventFunc func(
+		ctx context.Context, org string, event nico.FaultIngestionRequest,
+	) (*nico.FaultEvent, *http.Response, error)
 }
 
 func (m *mockNicoClient) GetInstance(
@@ -140,7 +145,7 @@ func (m *mockNicoClient) GetMachine(
 
 func (m *mockNicoClient) GetCapabilities(
 	ctx context.Context, org string,
-) (*nicoprovider.CapabilitiesResponse, *http.Response, error) {
+) (*nico.CapabilitiesResponse, *http.Response, error) {
 	if m.getCapabilitiesFunc != nil {
 		return m.getCapabilitiesFunc(ctx, org)
 	}
@@ -149,11 +154,20 @@ func (m *mockNicoClient) GetCapabilities(
 
 func (m *mockNicoClient) GetHealthEvents(
 	ctx context.Context, org string, machineID string,
-) ([]nicoprovider.FaultEvent, *http.Response, error) {
+) ([]nico.FaultEvent, *http.Response, error) {
 	if m.getHealthEventsFunc != nil {
 		return m.getHealthEventsFunc(ctx, org, machineID)
 	}
 	return nil, mockHTTPResponse(404), fmt.Errorf("not found")
+}
+
+func (m *mockNicoClient) IngestHealthEvent(
+	ctx context.Context, org string, event nico.FaultIngestionRequest,
+) (*nico.FaultEvent, *http.Response, error) {
+	if m.ingestHealthEventFunc != nil {
+		return m.ingestHealthEventFunc(ctx, org, event)
+	}
+	return nil, mockHTTPResponse(202), nil
 }
 
 var _ = Describe("InstancesV2 Interface", func() {

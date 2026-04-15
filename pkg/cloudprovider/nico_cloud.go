@@ -18,14 +18,16 @@ package cloudprovider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
+	"k8s.io/client-go/kubernetes"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 
@@ -37,40 +39,27 @@ const (
 	ProviderName = "nico"
 
 	// Default environment variable names for configuration
-	EnvEndpoint = "NICO_ENDPOINT"
-	EnvOrgName  = "NICO_ORG_NAME"
-	EnvToken    = "NICO_TOKEN"
-	EnvSiteID   = "NICO_SITE_ID"
-	EnvTenantID = "NICO_TENANT_ID"
-	EnvAPIName  = "NICO_API_NAME"
+	EnvEndpoint       = "NICO_ENDPOINT"
+	EnvOrgName        = "NICO_ORG_NAME"
+	EnvToken          = "NICO_TOKEN"
+	EnvSiteID         = "NICO_SITE_ID"
+	EnvTenantID       = "NICO_TENANT_ID"
+	EnvAPIName        = "NICO_API_NAME"
+	EnvMaxRetries     = "NICO_MAX_RETRIES"
+	EnvInitialBackoff = "NICO_INITIAL_BACKOFF_SECONDS"
 )
 
 // NicoClientInterface defines the methods we need from the NICo REST client
-type NicoClientInterface interface {
+type NicoClientInterface interface { //nolint:dupl // test mock mirrors this
 	GetInstance(ctx context.Context, org string, instanceId string) (*nico.Instance, *http.Response, error)
 	GetSite(ctx context.Context, org string, siteId string) (*nico.Site, *http.Response, error)
 	GetInstanceType(ctx context.Context, org string, instanceTypeId string) (*nico.InstanceType, *http.Response, error)
 	GetMachine(ctx context.Context, org string, machineId string) (*nico.Machine, *http.Response, error)
-	GetCapabilities(ctx context.Context, org string) (*CapabilitiesResponse, *http.Response, error)
-	GetHealthEvents(ctx context.Context, org string, machineID string) ([]FaultEvent, *http.Response, error)
-}
-
-// CapabilitiesResponse represents the response from the capabilities endpoint.
-type CapabilitiesResponse struct {
-	Features []string `json:"features"`
-}
-
-// FaultEvent represents a structured fault event from the health events API.
-type FaultEvent struct {
-	ID             string  `json:"id"`
-	MachineID      string  `json:"machine_id"`
-	Source         string  `json:"source"`
-	Severity       string  `json:"severity"`
-	Component      string  `json:"component"`
-	Classification string  `json:"classification"`
-	Message        string  `json:"message"`
-	State          string  `json:"state"`
-	DetectedAt     string  `json:"detected_at"`
+	GetCapabilities(ctx context.Context, org string) (*nico.CapabilitiesResponse, *http.Response, error)
+	GetHealthEvents(ctx context.Context, org string, machineID string) ([]nico.FaultEvent, *http.Response, error)
+	IngestHealthEvent(
+		ctx context.Context, org string, event nico.FaultIngestionRequest,
+	) (*nico.FaultEvent, *http.Response, error)
 }
 
 // nicoAPIClient wraps the SDK APIClient and injects auth context
@@ -109,71 +98,33 @@ func (c *nicoAPIClient) GetMachine(
 
 func (c *nicoAPIClient) GetCapabilities(
 	ctx context.Context, org string,
-) (*CapabilitiesResponse, *http.Response, error) {
-	baseURL := c.client.GetConfig().Servers[0].URL
-	url := fmt.Sprintf("%s/v2/org/%s/carbide/capabilities", baseURL, org)
-
-	req, err := http.NewRequestWithContext(c.authCtx(ctx), http.MethodGet, url, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create capabilities request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.client.GetConfig().HTTPClient.Do(req)
-	if err != nil {
-		return nil, resp, fmt.Errorf("capabilities request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, resp, fmt.Errorf("capabilities endpoint returned status %d", resp.StatusCode)
-	}
-
-	var caps CapabilitiesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&caps); err != nil {
-		return nil, resp, fmt.Errorf("failed to decode capabilities response: %w", err)
-	}
-	return &caps, resp, nil
+) (*nico.CapabilitiesResponse, *http.Response, error) {
+	return c.client.MetadataAPI.GetCapabilities(c.authCtx(ctx), org).Execute()
 }
 
 func (c *nicoAPIClient) GetHealthEvents(
 	ctx context.Context, org, machineID string,
-) ([]FaultEvent, *http.Response, error) {
-	baseURL := c.client.GetConfig().Servers[0].URL
-	url := fmt.Sprintf("%s/v2/org/%s/carbide/health/events?machine_id=%s&state=open",
-		baseURL, org, machineID)
+) ([]nico.FaultEvent, *http.Response, error) {
+	return c.client.HealthAPI.ListFaultEvents(c.authCtx(ctx), org).
+		MachineId(machineID).
+		State("open").
+		Execute()
+}
 
-	req, err := http.NewRequestWithContext(c.authCtx(ctx), http.MethodGet, url, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create health events request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.client.GetConfig().HTTPClient.Do(req)
-	if err != nil {
-		return nil, resp, fmt.Errorf("health events request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, resp, fmt.Errorf("health events endpoint returned status %d", resp.StatusCode)
-	}
-
-	var events []FaultEvent
-	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
-		return nil, resp, fmt.Errorf("failed to decode health events response: %w", err)
-	}
-	return events, resp, nil
+func (c *nicoAPIClient) IngestHealthEvent(
+	ctx context.Context, org string, event nico.FaultIngestionRequest,
+) (*nico.FaultEvent, *http.Response, error) {
+	return c.client.HealthAPI.IngestFaultEvent(c.authCtx(ctx), org).
+		FaultIngestionRequest(event).
+		Execute()
 }
 
 // NicoCloud implements the Kubernetes cloud provider interface for NICo
 type NicoCloud struct {
 	nicoClient NicoClientInterface
-	orgName             string
-	siteID              string
-	tenantID            string
+	orgName    string
+	siteID     string
+	tenantID   string
 	// siteCache maps siteID -> *siteInfo. Entries are never evicted because
 	// sites rarely change; restarting the CCM clears the cache.
 	siteCache          sync.Map
@@ -181,6 +132,9 @@ type NicoCloud struct {
 	// faultManagementAvailable caches whether the fault-management feature
 	// is available. nil = not yet checked, non-nil = cached result.
 	faultManagementAvailable *bool
+	managedNodes             sync.Map // tracks nodes seen by InstanceMetadata for gauge
+	retry                    retryConfig
+	kubeClient               kubernetes.Interface
 }
 
 func init() {
@@ -219,11 +173,20 @@ func NewNicoCloud(config io.Reader) (cloudprovider.Interface, error) {
 
 	klog.Infof("NICo cloud provider initialized for org=%s, site=%s", cfg.OrgName, cfg.SiteID)
 
+	rc := defaultRetryConfig()
+	if cfg.MaxRetries > 0 {
+		rc.maxRetries = cfg.MaxRetries
+	}
+	if cfg.InitialBackoffSeconds > 0 {
+		rc.initialBackoff = time.Duration(cfg.InitialBackoffSeconds) * time.Second
+	}
+
 	return &NicoCloud{
 		nicoClient: nicoClient,
-		orgName:             cfg.OrgName,
-		siteID:              cfg.SiteID,
-		tenantID:            cfg.TenantID,
+		orgName:    cfg.OrgName,
+		siteID:     cfg.SiteID,
+		tenantID:   cfg.TenantID,
+		retry:      rc,
 	}, nil
 }
 
@@ -233,15 +196,26 @@ func NewNicoCloudWithClient(
 ) cloudprovider.Interface {
 	return &NicoCloud{
 		nicoClient: client,
-		orgName:             orgName,
-		siteID:              siteID,
-		tenantID:            tenantID,
+		orgName:    orgName,
+		siteID:     siteID,
+		tenantID:   tenantID,
+		retry:      defaultRetryConfig(),
 	}
 }
 
 // Initialize provides the cloud provider with the client builder and may be called multiple times
 func (c *NicoCloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, stop <-chan struct{}) {
 	klog.Info("Initializing NICo cloud provider")
+	c.kubeClient = clientBuilder.ClientOrDie("nico-ccm-conditions")
+	klog.Info("Kubernetes client initialized for node condition management")
+
+	// Start the event reporter to relay K8s health events back to NICo
+	reporter := &nodeEventReporter{
+		nicoClient: c.nicoClient,
+		orgName:    c.orgName,
+		retry:      c.retry,
+	}
+	go reporter.start(c.kubeClient, c.hasFaultManagement(context.Background()), stop)
 }
 
 // LoadBalancer returns a LoadBalancer interface.
@@ -308,6 +282,14 @@ type Config struct {
 	// APIName overrides the API path segment after /org/{org}/.
 	// Leave empty to use the default "carbide" path.
 	APIName string `yaml:"apiName"`
+
+	// MaxRetries is the maximum number of retries for transient API errors.
+	// Defaults to 3 if unset or zero.
+	MaxRetries int `yaml:"maxRetries"`
+
+	// InitialBackoffSeconds is the initial backoff duration in seconds
+	// for exponential retry. Defaults to 1 if unset or zero.
+	InitialBackoffSeconds int `yaml:"initialBackoffSeconds"`
 }
 
 // Validate checks if the configuration is valid
@@ -373,6 +355,18 @@ func parseConfig(config io.Reader) (*Config, error) {
 	if apiName := os.Getenv(EnvAPIName); apiName != "" {
 		cfg.APIName = apiName
 		klog.V(4).Infof("Using apiName from environment: %s", apiName)
+	}
+	if maxRetries := os.Getenv(EnvMaxRetries); maxRetries != "" {
+		if v, err := strconv.Atoi(maxRetries); err == nil {
+			cfg.MaxRetries = v
+			klog.V(4).Infof("Using maxRetries from environment: %d", v)
+		}
+	}
+	if backoff := os.Getenv(EnvInitialBackoff); backoff != "" {
+		if v, err := strconv.Atoi(backoff); err == nil {
+			cfg.InitialBackoffSeconds = v
+			klog.V(4).Infof("Using initialBackoffSeconds from environment: %d", v)
+		}
 	}
 
 	return cfg, nil

@@ -41,8 +41,11 @@ func TestParseProviderID_4Segment(t *testing.T) {
 			wantID:     instanceID,
 		},
 		{
-			name:       "UUIDs as org/tenant/site names",
-			input:      "nico://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/ffffffff-0000-1111-2222-333333333333/44444444-5555-6666-7777-888888888888/11111111-2222-3333-4444-555555555555",
+			name: "UUIDs as org/tenant/site names",
+			input: "nico://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/" +
+				"ffffffff-0000-1111-2222-333333333333/" +
+				"44444444-5555-6666-7777-888888888888/" +
+				"11111111-2222-3333-4444-555555555555",
 			wantOrg:    "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
 			wantTenant: "ffffffff-0000-1111-2222-333333333333",
 			wantSite:   "44444444-5555-6666-7777-888888888888",

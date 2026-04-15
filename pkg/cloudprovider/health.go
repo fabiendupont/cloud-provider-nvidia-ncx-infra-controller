@@ -49,6 +49,9 @@ const (
 
 	// LabelFaultState is the lifecycle state of the fault.
 	LabelFaultState = "nico.io/fault-state"
+
+	healthyTrue  = "true"
+	healthyFalse = "false"
 )
 
 // machineHealthLabels returns labels describing machine health status.
@@ -67,9 +70,11 @@ func (c *NicoCloud) machineHealthLabels(ctx context.Context, instance *nico.Inst
 	if cached, ok := c.machineHealthCache.Load(*machineID); ok {
 		entry := cached.(*machineHealthCacheEntry)
 		if time.Now().Before(entry.expiresAt) {
+			healthCacheHits.Inc()
 			return entry.labels
 		}
 	}
+	healthCacheMisses.Inc()
 
 	var labels map[string]string
 	if c.hasFaultManagement(ctx) {
@@ -94,6 +99,14 @@ func (c *NicoCloud) machineHealthLabels(ctx context.Context, instance *nico.Inst
 		klog.V(2).InfoS("Machine health status changed",
 			"machineID", *machineID,
 			"previous", previousHealthy, "current", currentHealthy)
+		if currentHealthy == healthyFalse {
+			nodesUnhealthy.Inc()
+		} else {
+			nodesUnhealthy.Dec()
+		}
+	} else if previousHealthy == "" && currentHealthy == healthyFalse {
+		// First time seeing this machine and it's unhealthy
+		nodesUnhealthy.Inc()
 	}
 
 	c.machineHealthCache.Store(*machineID, &machineHealthCacheEntry{
@@ -111,7 +124,9 @@ func (c *NicoCloud) hasFaultManagement(ctx context.Context) bool {
 		return *c.faultManagementAvailable
 	}
 
-	caps, _, err := c.nicoClient.GetCapabilities(ctx, c.orgName)
+	caps, _, err := retryDo(ctx, "GetCapabilities", c.retry, func() (*nico.CapabilitiesResponse, *http.Response, error) {
+		return c.nicoClient.GetCapabilities(ctx, c.orgName)
+	})
 	if err != nil {
 		klog.V(4).Infof("Capabilities endpoint unavailable, using JSONB fallback: %v", err)
 		result := false
@@ -120,10 +135,9 @@ func (c *NicoCloud) hasFaultManagement(ctx context.Context) bool {
 	}
 
 	result := false
-	for _, f := range caps.Features {
-		if f == "fault-management" {
+	if caps.Features != nil {
+		if _, ok := caps.Features["fault-management"]; ok {
 			result = true
-			break
 		}
 	}
 	c.faultManagementAvailable = &result
@@ -139,7 +153,9 @@ func (c *NicoCloud) hasFaultManagement(ctx context.Context) bool {
 // events API (NEP-0007). Returns labels with fault component, classification,
 // and state from the first open fault event.
 func (c *NicoCloud) healthLabelsFromFaultAPI(ctx context.Context, machineID string) map[string]string {
-	events, _, err := c.nicoClient.GetHealthEvents(ctx, c.orgName, machineID)
+	events, _, err := retryDo(ctx, "GetHealthEvents", c.retry, func() ([]nico.FaultEvent, *http.Response, error) {
+		return c.nicoClient.GetHealthEvents(ctx, c.orgName, machineID)
+	})
 	if err != nil {
 		klog.V(4).Infof("Failed to fetch health events for machine %s: %v", machineID, err)
 		return nil
@@ -147,25 +163,25 @@ func (c *NicoCloud) healthLabelsFromFaultAPI(ctx context.Context, machineID stri
 
 	if len(events) == 0 {
 		return map[string]string{
-			LabelHealthy: "true",
+			LabelHealthy: healthyTrue,
 		}
 	}
 
 	labels := map[string]string{
-		LabelHealthy:          "false",
+		LabelHealthy:          healthyFalse,
 		LabelHealthAlertCount: fmt.Sprintf("%d", len(events)),
 	}
 
 	// Use the first fault event for component-level labels
 	first := events[0]
-	if first.Component != "" {
-		labels[LabelFaultComponent] = first.Component
+	if first.Component != nil && *first.Component != "" {
+		labels[LabelFaultComponent] = *first.Component
 	}
-	if first.Classification != "" {
-		labels[LabelFaultClassification] = first.Classification
+	if first.Classification != nil && *first.Classification != "" {
+		labels[LabelFaultClassification] = *first.Classification
 	}
-	if first.State != "" {
-		labels[LabelFaultState] = first.State
+	if first.State != nil && *first.State != "" {
+		labels[LabelFaultState] = *first.State
 	}
 
 	return labels
@@ -174,7 +190,9 @@ func (c *NicoCloud) healthLabelsFromFaultAPI(ctx context.Context, machineID stri
 // healthLabelsFromJSONB derives health labels from the machine.health JSONB
 // field. This is the legacy path used when fault-management is not available.
 func (c *NicoCloud) healthLabelsFromJSONB(ctx context.Context, machineID string) map[string]string {
-	machine, httpResp, err := c.nicoClient.GetMachine(ctx, c.orgName, machineID)
+	machine, httpResp, err := retryDo(ctx, "GetMachine", c.retry, func() (*nico.Machine, *http.Response, error) {
+		return c.nicoClient.GetMachine(ctx, c.orgName, machineID)
+	})
 	if err != nil || httpResp.StatusCode != http.StatusOK || machine == nil {
 		klog.V(4).Infof("Could not fetch machine %s for health check: %v", machineID, err)
 		return nil
@@ -186,12 +204,12 @@ func (c *NicoCloud) healthLabelsFromJSONB(ctx context.Context, machineID string)
 
 	if len(machine.Health.Alerts) == 0 {
 		return map[string]string{
-			LabelHealthy: "true",
+			LabelHealthy: healthyTrue,
 		}
 	}
 
 	return map[string]string{
-		LabelHealthy:          "false",
+		LabelHealthy:          healthyFalse,
 		LabelHealthAlertCount: fmt.Sprintf("%d", len(machine.Health.Alerts)),
 	}
 }

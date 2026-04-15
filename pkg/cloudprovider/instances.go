@@ -45,7 +45,9 @@ func (c *NicoCloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, er
 		return false, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	_, httpResp, err := c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	_, httpResp, err := retryDo(ctx, "GetInstance", c.retry, func() (*nico.Instance, *http.Response, error) {
+		return c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	})
 	if err != nil {
 		klog.Warningf("Instance %s not found: %v", parsed.InstanceID, err)
 		return false, nil
@@ -72,7 +74,9 @@ func (c *NicoCloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, 
 		return false, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	instance, httpResp, err := c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	instance, httpResp, err := retryDo(ctx, "GetInstance", c.retry, func() (*nico.Instance, *http.Response, error) {
+		return c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	})
 	if err != nil {
 		return false, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -118,7 +122,9 @@ func (c *NicoCloud) InstanceMetadata(
 		return nil, fmt.Errorf("failed to parse provider ID: %w", err)
 	}
 
-	instance, httpResp, err := c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	instance, httpResp, err := retryDo(ctx, "GetInstance", c.retry, func() (*nico.Instance, *http.Response, error) {
+		return c.nicoClient.GetInstance(ctx, c.orgName, parsed.InstanceID.String())
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -136,6 +142,11 @@ func (c *NicoCloud) InstanceMetadata(
 	zone, region := c.resolveZoneAndRegion(ctx, siteID)
 
 	addresses := c.extractNodeAddresses(instance, node.Name)
+
+	// Track managed nodes for the gauge metric
+	if _, loaded := c.managedNodes.LoadOrStore(node.Name, struct{}{}); !loaded {
+		nodesManaged.Inc()
+	}
 
 	additionalLabels := c.machineHealthLabels(ctx, instance)
 
@@ -158,6 +169,9 @@ func (c *NicoCloud) InstanceMetadata(
 			additionalLabels["nico.io/serial-console"] = url
 		}
 	}
+
+	// Sync health data as NodeConditions (no-op if kubeClient is nil)
+	c.syncNodeConditions(ctx, node, additionalLabels)
 
 	metadata := &cloudprovider.InstanceMetadata{
 		ProviderID:       providerID,
@@ -182,7 +196,9 @@ func (c *NicoCloud) resolveInstanceType(ctx context.Context, instance *nico.Inst
 	}
 
 	instanceTypeID := instance.GetInstanceTypeId()
-	it, httpResp, err := c.nicoClient.GetInstanceType(ctx, c.orgName, instanceTypeID)
+	it, httpResp, err := retryDo(ctx, "GetInstanceType", c.retry, func() (*nico.InstanceType, *http.Response, error) {
+		return c.nicoClient.GetInstanceType(ctx, c.orgName, instanceTypeID)
+	})
 	if err != nil || httpResp.StatusCode != http.StatusOK || it == nil {
 		klog.Warningf("Failed to get instance type %s, using fallback: %v", instanceTypeID, err)
 		return defaultInstanceType
@@ -226,7 +242,9 @@ func (c *NicoCloud) getCachedSite(ctx context.Context, siteID string) (*siteInfo
 		return cached.(*siteInfo), nil
 	}
 
-	site, httpResp, err := c.nicoClient.GetSite(ctx, c.orgName, siteID)
+	site, httpResp, err := retryDo(ctx, "GetSite", c.retry, func() (*nico.Site, *http.Response, error) {
+		return c.nicoClient.GetSite(ctx, c.orgName, siteID)
+	})
 	if err != nil || httpResp.StatusCode != http.StatusOK || site == nil {
 		return nil, fmt.Errorf("failed to get site %s: %w", siteID, err)
 	}
