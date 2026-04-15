@@ -60,10 +60,10 @@ jobs:
           kind create cluster --name $KIND_CLUSTER
           kind load docker-image $OPERATOR_IMG --name $KIND_CLUSTER
           for img in \
-            localhost/nico-rest-api:e2e \
-            localhost/nico-rest-workflow:e2e \
-            localhost/nico-rest-site-manager:e2e \
-            localhost/nico-rest-db:e2e \
+            localhost/carbide-rest-api:e2e \
+            localhost/carbide-rest-workflow:e2e \
+            localhost/carbide-rest-site-manager:e2e \
+            localhost/carbide-rest-db:e2e \
             docker.io/library/postgres:16-alpine; do
             docker pull "$img" 2>/dev/null || true
             kind load docker-image "$img" --name $KIND_CLUSTER
