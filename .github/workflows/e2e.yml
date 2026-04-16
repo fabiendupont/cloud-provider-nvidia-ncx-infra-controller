@@ -31,7 +31,7 @@ jobs:
       - name: Checkout NICo source repos
         run: |
           GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/NVIDIA/ncx-infra-controller-core.git $CORE_REPO_PATH
-          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/NVIDIA/ncx-infra-controller-rest.git $REST_REPO_PATH
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --branch feat/extensible-architecture https://github.com/fabiendupont/nvidia-ncx-infra-controller-rest.git $REST_REPO_PATH
 
       - name: Setup Go
         uses: actions/setup-go@v5
